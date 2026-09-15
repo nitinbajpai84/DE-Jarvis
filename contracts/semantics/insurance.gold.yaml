@@ -1,0 +1,152 @@
+# Contract schema: GOLD / SEMANTIC. Compiled from docs/templates/jarvis_gold_model_template.xlsx -- do not hand-edit.
+$schema: jarvis/gold/v1
+domain: insurance
+consumers:
+- bi_dashboard
+- finance_export
+metrics:
+- name: written_premium
+  expression: SUM(written_premium_amount)
+  grain:
+  - line_of_business
+  - transaction_type
+  format: currency_usd
+  owner: finance@example.com
+- name: earned_premium
+  expression: SUM(earned_premium_amount)
+  grain:
+  - line_of_business
+  - transaction_type
+  format: currency_usd
+  owner: finance@example.com
+- name: policy_count
+  expression: COUNT(DISTINCT policy_id)
+  grain:
+  - line_of_business
+  - policy_status
+  format: integer
+  owner: underwriting@example.com
+- name: claim_count
+  expression: COUNT(DISTINCT claim_id)
+  grain:
+  - line_of_business
+  - claim_status
+  format: integer
+  owner: claims@example.com
+- name: claims_paid
+  expression: SUM(paid_amount)
+  grain:
+  - line_of_business
+  - claim_status
+  format: currency_usd
+  owner: claims@example.com
+- name: claims_reserved
+  expression: SUM(reserve_amount)
+  grain:
+  - line_of_business
+  - claim_status
+  format: currency_usd
+  owner: claims@example.com
+- name: loss_ratio
+  expression: claims_paid / NULLIF(earned_premium, 0)
+  grain:
+  - line_of_business
+  depends_on:
+  - claims_paid
+  - earned_premium
+  non_additive: true
+  format: percent
+  owner: claims@example.com
+- name: average_claim_severity
+  expression: claims_paid / NULLIF(claim_count, 0)
+  grain:
+  - line_of_business
+  depends_on:
+  - claims_paid
+  - claim_count
+  non_additive: true
+  format: currency_usd
+  owner: claims@example.com
+business_rules:
+- id: BR-001
+  statement: Loss ratio is calculated only where earned premium > 0 -- lines with
+    no earned premium yet show a null ratio, not a divide-by-zero or a misleading
+    zero.
+  applies_to:
+  - loss_ratio
+- id: BR-002
+  statement: Cancelled and expired policies are retained in policy_count (the current-state
+    count by status) but excluded from written/earned premium via policy_status filtering
+    at the mart join, not silently dropped from the dimension.
+  applies_to:
+  - policy_count
+  - written_premium
+- id: BR-003
+  statement: Claim severity uses the current reserve+paid split as of the report run,
+    not a point-in-time snapshot -- claims still open will change as they develop.
+  applies_to:
+  - average_claim_severity
+marts:
+- name: mart_premium_by_product
+  source_fact: fact_premium
+  join_dimensions:
+  - dimension: dim_policy
+    'on': policy_id
+    current_only: true
+  - dimension: dim_product
+    'on': product_id
+    via: dim_policy.product_id
+  grain:
+  - line_of_business
+  - transaction_type
+  metrics:
+  - written_premium
+  - earned_premium
+  materialisation: table
+- name: mart_claims_by_status
+  source_fact: fact_claim
+  join_dimensions:
+  - dimension: dim_policy
+    'on': policy_id
+    current_only: true
+  - dimension: dim_product
+    'on': product_id
+    via: dim_policy.product_id
+  grain:
+  - line_of_business
+  - claim_status
+  metrics:
+  - claim_count
+  - claims_paid
+  - claims_reserved
+  materialisation: table
+- name: mart_loss_ratio_by_line
+  source_fact: fact_claim
+  join_dimensions:
+  - dimension: dim_policy
+    'on': policy_id
+    current_only: true
+  - dimension: dim_product
+    'on': product_id
+    via: dim_policy.product_id
+  grain:
+  - line_of_business
+  metrics:
+  - claims_paid
+  - loss_ratio
+  materialisation: table
+dashboards:
+- name: Underwriting & Claims Overview
+  tiles:
+  - type: bar
+    metric: written_premium
+    x: line_of_business
+  - type: bar
+    metric: claim_count
+    x: line_of_business
+    series: claim_status
+  - type: kpi
+    metric: loss_ratio
+  - type: table
+    by:
+    - line_of_business
