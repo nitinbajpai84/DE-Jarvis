@@ -4,6 +4,10 @@ The agent definitions are the portable asset. Claude Code reads .claude/agents/
 natively; this adapter lets the SAME files drive a headless deepagents run so you
 can move from interactive (Phase 1-4) to unattended CI (Phase 5) without rewriting
 a single prompt.
+
+Headless runs use Google Gemini (requires GOOGLE_API_KEY in the environment) rather
+than the Claude Code session itself, since there is no Claude Code runtime to host
+the agent outside an interactive session.
 """
 from __future__ import annotations
 
@@ -15,8 +19,11 @@ FRONTMATTER = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.S)
 
 # Cheap models for mechanical agents, stronger models where judgement matters.
 MODEL_MAP = {
-    "haiku": "claude-haiku-4-5-20251001",
-    "sonnet": "claude-sonnet-5",
+    # Explicit "google_genai:" provider prefix -- a bare "gemini-*" string resolves
+    # to Vertex AI (needs GCP project/service-account creds) not the Gemini Developer
+    # API (needs only GOOGLE_API_KEY). See langchain.chat_models.init_chat_model.
+    "haiku": "google_genai:gemini-2.5-flash",
+    "sonnet": "google_genai:gemini-3.1-pro-preview",
 }
 
 

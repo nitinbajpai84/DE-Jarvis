@@ -1,9 +1,14 @@
 dlt[duckdb,filesystem]>=1.5
 dbt-core>=1.9
 dbt-duckdb>=1.9
+dbt-databricks>=1.9
 duckdb>=1.1
 sqlglot>=26
-soda-core-duckdb>=3.3
+# soda-core-duckdb>=3.3  # KNOWN CONFLICT: its otel/googleapis-common-protos chain wants
+                          # protobuf>=6.33.5, dbt-core pins protobuf<6.0. Needs its own venv
+                          # or a resolved pin combo before Phase 1 DQ checks. See requirements.lock.txt.
 pydantic>=2
 pyyaml>=6
 faker>=30
+deepagents
+langchain-google-genai
