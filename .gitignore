@@ -12,3 +12,4 @@ dbt_packages/
 dbt/.user.yml
 dbt/profiles.yml
 harness/dashboard.html
+harness/dashboard_*.html

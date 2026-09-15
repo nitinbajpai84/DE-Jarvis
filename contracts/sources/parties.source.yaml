@@ -1,0 +1,92 @@
+# ----------------------------------------------------------------------
+# S001  parties  (file)
+# ----------------------------------------------------------------------
+$schema: jarvis/source/v1
+source_id: parties
+domain: insurance
+owner: data-eng@example.com
+classification: pii
+connection:
+  type: file
+  path: harness/landing/parties/parties_*.csv
+  format: csv
+  delimiter: ','
+  header: true
+  encoding: utf-8
+arrival:
+  cadence: daily
+  expected_by: 06:00 Asia/Singapore
+load:
+  strategy: append
+  primary_key:
+  - party_id
+schema:
+- name: party_id
+  type: string
+  nullable: false
+  description: Natural key
+  pii: true
+- name: party_type
+  type: string
+  nullable: false
+  description: person | organization | household
+- name: display_name
+  type: string
+  nullable: false
+  pii: true
+- name: first_name
+  type: string
+  nullable: true
+  pii: true
+- name: last_name
+  type: string
+  nullable: true
+  pii: true
+- name: organization_name
+  type: string
+  nullable: true
+  pii: true
+- name: date_of_birth
+  type: date
+  nullable: true
+  pii: true
+  format: '%Y-%m-%d'
+- name: email
+  type: string
+  nullable: true
+  pii: true
+- name: phone
+  type: string
+  nullable: true
+  pii: true
+- name: preferred_contact_method
+  type: string
+  nullable: true
+file_checks:
+  min_rows: 100
+  expected_columns: 10
+  row_count_deviation_pct: 40
+  reject_on_schema_drift: true
+  quarantine_path: harness/quarantine/parties/
+quality_rules:
+- rule: not_null
+  columns:
+  - party_id
+  - display_name
+  severity: error
+- rule: unique
+  columns:
+  - party_id
+  severity: error
+- rule: accepted_values
+  columns:
+  - party_type
+  severity: error
+  params:
+    values:
+    - person
+    - organization
+    - household
+sla:
+  freshness_hours: 24
+  completeness_pct: 99

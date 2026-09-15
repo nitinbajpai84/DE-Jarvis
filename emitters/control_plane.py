@@ -13,7 +13,7 @@ from __future__ import annotations
 import pathlib
 from typing import Any
 
-import duckdb
+from emitters.sql_dialect import SqlConnection
 
 _DDL_TEMPLATE = """
 create schema if not exists {control};
@@ -113,12 +113,18 @@ create table if not exists {control}.load_lineage (
 """
 
 
-def ensure_control_schema(con: duckdb.DuckDBPyConnection, control_schema: str) -> None:
-    con.execute(_DDL_TEMPLATE.format(control=control_schema))
+def ensure_control_schema(con: SqlConnection, control_schema: str) -> None:
+    # SqlConnection.execute() takes one statement at a time (Databricks' connector rejects
+    # more than one per call) -- split the template rather than relying on either driver to
+    # handle a semicolon-joined batch.
+    for statement in _DDL_TEMPLATE.format(control=control_schema).split(";"):
+        statement = statement.strip()
+        if statement:
+            con.execute(statement)
 
 
 def compile_source_registration(
-    con: duckdb.DuckDBPyConnection, contract: dict[str, Any], control_schema: str
+    con: SqlConnection, contract: dict[str, Any], control_schema: str
 ) -> None:
     """Upsert control.data_system / config_data_source_file from a parsed *.source.yaml.
 
@@ -130,16 +136,17 @@ def compile_source_registration(
     source_id = contract["source_id"]
     conn = contract["connection"]
 
+    # DELETE + INSERT rather than an upsert: Databricks/Delta has no ON CONFLICT, and sqlglot
+    # transpiles it to itself rather than a valid MERGE INTO -- a silent no-op, not a real fix
+    # (see ADR-001's resolution note). Delete-then-insert needs no dialect-specific SQL at all,
+    # which is the actual point of "write once" -- not a workaround bolted on afterward.
+    con.execute(f"delete from {control_schema}.data_system where data_source_id = ?", [source_id])
     con.execute(
         f"""
         insert into {control_schema}.data_system
             (data_source_id, data_source_name, data_source_type, data_source_code,
              data_source_country, description, is_active)
         values (?, ?, ?, ?, ?, ?, true)
-        on conflict (data_source_id) do update set
-            data_source_name = excluded.data_source_name,
-            data_source_type = excluded.data_source_type,
-            description = excluded.description
         """,
         [source_id, source_id, contract["domain"], source_id, None,
          f"{contract['domain']} / {contract['classification']}"],
@@ -161,6 +168,8 @@ def compile_source_registration(
     else:
         raise NotImplementedError(f"connection.type={ctype!r} not implemented in compile_source_registration")
 
+    con.execute(f"delete from {control_schema}.config_data_source_file where data_file_code = ?",
+                [f"{source_id}_file"])
     con.execute(
         f"""
         insert into {control_schema}.config_data_source_file
@@ -170,8 +179,6 @@ def compile_source_registration(
              delimiter, has_column_headings, storage_location, frequency,
              is_file_mandatory, is_file_active, sla_arrival_cutoff_time)
         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true, ?)
-        on conflict (data_file_code) do update set
-            storage_location = excluded.storage_location
         """,
         [
             f"{source_id}_file", source_id, contract["domain"], ctype,

@@ -1,0 +1,84 @@
+# ----------------------------------------------------------------------
+# S004  agents  (file)
+# ----------------------------------------------------------------------
+$schema: jarvis/source/v1
+source_id: agents
+domain: insurance
+owner: data-eng@example.com
+classification: internal
+connection:
+  type: file
+  path: harness/landing/agents/agents_*.csv
+  format: csv
+  delimiter: ','
+  header: true
+  encoding: utf-8
+arrival:
+  cadence: daily
+  expected_by: 06:00 Asia/Singapore
+load:
+  strategy: append
+  primary_key:
+  - agent_id
+schema:
+- name: agent_id
+  type: string
+  nullable: false
+  description: Natural key
+  pii: true
+- name: party_id
+  type: string
+  nullable: false
+  description: FK to parties
+  pii: true
+- name: agent_number
+  type: string
+  nullable: false
+- name: license_state
+  type: string
+  nullable: true
+- name: channel
+  type: string
+  nullable: false
+  description: exclusive|independent|broker|direct|partner
+- name: territory_code
+  type: string
+  nullable: true
+- name: appointment_date
+  type: date
+  nullable: false
+  format: '%Y-%m-%d'
+- name: status
+  type: string
+  nullable: false
+  description: active|inactive|terminated|suspended
+file_checks:
+  min_rows: 100
+  expected_columns: 8
+  row_count_deviation_pct: 40
+  reject_on_schema_drift: true
+  quarantine_path: harness/quarantine/agents/
+quality_rules:
+- rule: not_null
+  columns:
+  - agent_id
+  - party_id
+  - agent_number
+  severity: error
+- rule: unique
+  columns:
+  - agent_id
+  severity: error
+- rule: accepted_values
+  columns:
+  - status
+  severity: warn
+  params:
+    values:
+    - active
+    - inactive
+    - terminated
+    - suspended
+sla:
+  freshness_hours: 24
+  completeness_pct: 99

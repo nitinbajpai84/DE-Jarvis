@@ -1,0 +1,77 @@
+# ----------------------------------------------------------------------
+# S003  addresses  (file)
+# ----------------------------------------------------------------------
+$schema: jarvis/source/v1
+source_id: addresses
+domain: insurance
+owner: data-eng@example.com
+classification: pii
+connection:
+  type: file
+  path: harness/landing/addresses/addresses_*.csv
+  format: csv
+  delimiter: ','
+  header: true
+  encoding: utf-8
+arrival:
+  cadence: daily
+  expected_by: 06:00 Asia/Singapore
+load:
+  strategy: append
+  primary_key:
+  - address_id
+schema:
+- name: address_id
+  type: string
+  nullable: false
+  description: Natural key
+- name: party_id
+  type: string
+  nullable: false
+  description: FK to parties
+  pii: true
+- name: address_type
+  type: string
+  nullable: false
+  description: primary|mailing|billing|risk_location|business
+- name: line1
+  type: string
+  nullable: false
+  pii: true
+- name: city
+  type: string
+  nullable: false
+  pii: true
+- name: state_code
+  type: string
+  nullable: false
+- name: postal_code
+  type: string
+  nullable: false
+  pii: true
+- name: country_code
+  type: string
+  nullable: false
+- name: is_current
+  type: bool
+  nullable: false
+file_checks:
+  min_rows: 100
+  expected_columns: 9
+  row_count_deviation_pct: 40
+  reject_on_schema_drift: true
+  quarantine_path: harness/quarantine/addresses/
+quality_rules:
+- rule: not_null
+  columns:
+  - address_id
+  - party_id
+  - line1
+  severity: error
+- rule: unique
+  columns:
+  - address_id
+  severity: error
+sla:
+  freshness_hours: 24
+  completeness_pct: 99

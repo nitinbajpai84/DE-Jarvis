@@ -1,0 +1,79 @@
+# ----------------------------------------------------------------------
+# S008  premiums  (file)
+# ----------------------------------------------------------------------
+$schema: jarvis/source/v1
+source_id: premiums
+domain: insurance
+owner: data-eng@example.com
+classification: internal
+connection:
+  type: file
+  path: harness/landing/premiums/premiums_*.csv
+  format: csv
+  delimiter: ','
+  header: true
+  encoding: utf-8
+arrival:
+  cadence: daily
+  expected_by: 06:00 Asia/Singapore
+load:
+  strategy: append
+  primary_key:
+  - premium_id
+schema:
+- name: premium_id
+  type: string
+  nullable: false
+  description: Natural key
+- name: policy_id
+  type: string
+  nullable: false
+  description: FK to policies
+- name: policy_coverage_id
+  type: string
+  nullable: true
+  description: FK to policy_coverages
+- name: premium_period_start
+  type: date
+  nullable: false
+  format: '%Y-%m-%d'
+- name: premium_period_end
+  type: date
+  nullable: false
+  format: '%Y-%m-%d'
+- name: transaction_type
+  type: string
+  nullable: false
+  description: new_business|renewal|endorsement|cancellation|reinstatement|audit
+- name: written_premium_amount
+  type: decimal
+  nullable: false
+- name: earned_premium_amount
+  type: decimal
+  nullable: false
+file_checks:
+  min_rows: 100
+  expected_columns: 8
+  row_count_deviation_pct: 40
+  reject_on_schema_drift: true
+  quarantine_path: harness/quarantine/premiums/
+quality_rules:
+- rule: not_null
+  columns:
+  - premium_id
+  - policy_id
+  severity: error
+- rule: unique
+  columns:
+  - premium_id
+  severity: error
+- rule: range
+  columns:
+  - written_premium_amount
+  severity: warn
+  params:
+    min: 0
+    max: 1000000
+sla:
+  freshness_hours: 24
+  completeness_pct: 99

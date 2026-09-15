@@ -1,7 +1,7 @@
 # ADR-001: Direct DuckDB loader for P1, not dlt
 
 Date:     2026-09-15
-Status:   PROPOSED, NOT ACCEPTED -- see "Independent review finding" below
+Status:   ACCEPTED, as amended -- see "Resolution" below
 Phase:    P1
 
 ## Context
@@ -56,3 +56,41 @@ assuming portability it doesn't have. It still writes hand-written DuckDB SQL, n
 `sqlglot`-mediated code — that part of the deviation stands, undecided, pending your explicit
 call. This is the single item from this phase most worth your attention on review; everything
 else in this ADR is a disclosed, defensible tradeoff, but this one needs a yes/no, not a nod.
+
+## Resolution (2026-09-15, later the same day)
+
+Human decision: sqlglot dialect transpile, chosen over adopting `dlt` fully or hand-writing a
+second Databricks-specific loader. Built `emitters/sql_dialect.py` -- a `SqlConnection` wrapper
+unifying `duckdb.DuckDBPyConnection` and `databricks.sql.Connection` behind one
+`.execute()`/`.executemany()` interface. Every other module still authors exactly one SQL string
+per query, in duckdb dialect; `sql_dialect.py` is the only place that knows a second platform
+exists, which is what rule 2 actually asks for.
+
+Verified empirically against a live Databricks warehouse before trusting any of it, not assumed
+from documentation:
+- `?` positional parameters work despite the connector reporting `paramstyle='named'`.
+- `DATEDIFF(HOUR, start, end)` (sqlglot's transpile target for `date_diff`) is valid.
+- `PRIMARY KEY` in `CREATE TABLE` is accepted (informational, not enforced) -- fine for this use.
+- **`ON CONFLICT` is not valid Databricks SQL, and sqlglot transpiles it to itself rather than
+  erroring or rewriting to `MERGE INTO`** -- a silent-failure trap that would only surface at
+  execute time. The two upserts in `control_plane.py` that needed this were rewritten as
+  DELETE+INSERT, which needs no dialect-specific SQL at all -- not a hand-written `MERGE`
+  branch, which would have just reintroduced the rule this ADR exists to satisfy.
+- A genuine multi-statement-per-call gap: `SqlConnection.execute()` now refuses more than one
+  statement per call outright (Databricks' connector rejects it; sqlglot silently drops all but
+  the first transpiled statement otherwise) -- `ensure_control_schema` was changed to loop over
+  individual statements rather than relying on either driver to handle a semicolon-joined batch.
+
+Separately, a real performance bug surfaced loading data at scale on Databricks: row-by-row
+`INSERT` is fine locally but was measured as impractical over the network (orders' 3,359 rows
+staged only ~540 before the run was abandoned). The DBAPI cursor's own `.executemany()` looked
+like the fix; measurement showed no improvement, because `databricks-sql-connector`'s
+implementation is a bare loop over `.execute()` with, per its own docstring, "no optimizations
+of the query (like batching) ... performed." Real fix: `SqlConnection.executemany()` builds one
+actual multi-row `INSERT ... VALUES (...), (...), ...` per 500-row chunk. Confirmed by timed
+re-run: a 5,000-row table went from not completing in 5+ minutes to ~100 seconds total, most of
+which is connection/warehouse overhead, not data transfer.
+
+**Status**: accepted as amended. Proven end-to-end against a real target, not just designed --
+all 10 insurance-model sources load correctly on both `duckdb` and `databricks`, verified by
+direct row-count comparison across both platforms after the full load.

@@ -1,0 +1,75 @@
+# ----------------------------------------------------------------------
+# S007  policy_coverages  (file)
+# ----------------------------------------------------------------------
+$schema: jarvis/source/v1
+source_id: policy_coverages
+domain: insurance
+owner: data-eng@example.com
+classification: internal
+connection:
+  type: file
+  path: harness/landing/policy_coverages/policy_coverages_*.csv
+  format: csv
+  delimiter: ','
+  header: true
+  encoding: utf-8
+arrival:
+  cadence: daily
+  expected_by: 06:00 Asia/Singapore
+load:
+  strategy: append
+  primary_key:
+  - policy_coverage_id
+schema:
+- name: policy_coverage_id
+  type: string
+  nullable: false
+  description: Natural key
+- name: policy_id
+  type: string
+  nullable: false
+  description: FK to policies
+- name: coverage_code
+  type: string
+  nullable: false
+- name: coverage_name
+  type: string
+  nullable: false
+- name: coverage_status
+  type: string
+  nullable: false
+  description: active|cancelled|expired
+- name: limit_amount
+  type: decimal
+  nullable: true
+- name: deductible_amount
+  type: decimal
+  nullable: true
+- name: effective_date
+  type: date
+  nullable: false
+  format: '%Y-%m-%d'
+- name: expiration_date
+  type: date
+  nullable: false
+  format: '%Y-%m-%d'
+file_checks:
+  min_rows: 100
+  expected_columns: 9
+  row_count_deviation_pct: 40
+  reject_on_schema_drift: true
+  quarantine_path: harness/quarantine/policy_coverages/
+quality_rules:
+- rule: not_null
+  columns:
+  - policy_coverage_id
+  - policy_id
+  - coverage_code
+  severity: error
+- rule: unique
+  columns:
+  - policy_coverage_id
+  severity: error
+sla:
+  freshness_hours: 24
+  completeness_pct: 99

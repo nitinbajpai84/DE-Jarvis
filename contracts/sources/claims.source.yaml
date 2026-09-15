@@ -1,0 +1,103 @@
+# ----------------------------------------------------------------------
+# S010  claims  (file)
+# ----------------------------------------------------------------------
+$schema: jarvis/source/v1
+source_id: claims
+domain: insurance
+owner: data-eng@example.com
+classification: internal
+connection:
+  type: file
+  path: harness/landing/claims/claims_*.csv
+  format: csv
+  delimiter: ','
+  header: true
+  encoding: utf-8
+arrival:
+  cadence: daily
+  expected_by: 06:00 Asia/Singapore
+load:
+  strategy: append
+  primary_key:
+  - claim_id
+schema:
+- name: claim_id
+  type: string
+  nullable: false
+  description: Natural key
+- name: claim_number
+  type: string
+  nullable: false
+- name: policy_id
+  type: string
+  nullable: false
+  description: FK to policies
+- name: customer_id
+  type: string
+  nullable: false
+  description: FK to customers
+  pii: true
+- name: policy_coverage_id
+  type: string
+  nullable: true
+  description: FK to policy_coverages
+- name: loss_date
+  type: date
+  nullable: false
+  format: '%Y-%m-%d'
+- name: report_date
+  type: date
+  nullable: false
+  format: '%Y-%m-%d'
+- name: claim_status
+  type: string
+  nullable: false
+  description: open|closed|reopened|denied|subrogation
+- name: loss_cause
+  type: string
+  nullable: true
+- name: paid_amount
+  type: decimal
+  nullable: false
+- name: reserve_amount
+  type: decimal
+  nullable: false
+file_checks:
+  min_rows: 100
+  expected_columns: 11
+  row_count_deviation_pct: 40
+  reject_on_schema_drift: true
+  quarantine_path: harness/quarantine/claims/
+quality_rules:
+- rule: not_null
+  columns:
+  - claim_id
+  - claim_number
+  - policy_id
+  - customer_id
+  severity: error
+- rule: unique
+  columns:
+  - claim_number
+  severity: error
+- rule: accepted_values
+  columns:
+  - claim_status
+  severity: error
+  params:
+    values:
+    - open
+    - closed
+    - reopened
+    - denied
+    - subrogation
+- rule: range
+  columns:
+  - paid_amount
+  severity: error
+  params:
+    min: 0
+    max: 5000000
+sla:
+  freshness_hours: 24
+  completeness_pct: 99

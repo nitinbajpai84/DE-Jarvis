@@ -1,0 +1,93 @@
+# ----------------------------------------------------------------------
+# S002  customers  (file)
+# ----------------------------------------------------------------------
+$schema: jarvis/source/v1
+source_id: customers
+domain: insurance
+owner: data-eng@example.com
+classification: pii
+connection:
+  type: file
+  path: harness/landing/customers/customers_*.csv
+  format: csv
+  delimiter: ','
+  header: true
+  encoding: utf-8
+arrival:
+  cadence: daily
+  expected_by: 06:00 Asia/Singapore
+load:
+  strategy: append
+  primary_key:
+  - customer_id
+schema:
+- name: customer_id
+  type: string
+  nullable: false
+  description: Natural key
+  pii: true
+- name: party_id
+  type: string
+  nullable: false
+  description: FK to parties
+  pii: true
+- name: customer_number
+  type: string
+  nullable: false
+- name: customer_segment
+  type: string
+  nullable: true
+- name: lifecycle_stage
+  type: string
+  nullable: false
+  description: prospect|active|inactive|lapsed|former
+- name: acquisition_date
+  type: date
+  nullable: false
+  format: '%Y-%m-%d'
+- name: risk_tier
+  type: string
+  nullable: true
+  description: low|medium|high|very_high
+- name: engagement_score
+  type: decimal
+  nullable: true
+  description: 0-100
+file_checks:
+  min_rows: 100
+  expected_columns: 8
+  row_count_deviation_pct: 40
+  reject_on_schema_drift: true
+  quarantine_path: harness/quarantine/customers/
+quality_rules:
+- rule: not_null
+  columns:
+  - customer_id
+  - party_id
+  - customer_number
+  severity: error
+- rule: unique
+  columns:
+  - customer_id
+  severity: error
+- rule: accepted_values
+  columns:
+  - lifecycle_stage
+  severity: error
+  params:
+    values:
+    - prospect
+    - active
+    - inactive
+    - lapsed
+    - former
+- rule: range
+  columns:
+  - engagement_score
+  severity: warn
+  params:
+    min: 0
+    max: 100
+sla:
+  freshness_hours: 24
+  completeness_pct: 99

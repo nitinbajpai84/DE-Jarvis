@@ -22,9 +22,10 @@ for the pipeline; connectors below are what's new past P1):
   4. Promote: passing batches are inserted into bronze.<source_id>.
   5. One control.run_registry row per invocation, regardless of outcome (CLAUDE.md rule 7).
 
-KNOWN DEVIATION (flagged, not hidden -- see ADR-001): this loader talks to DuckDB directly
-rather than through dlt + sqlglot (CLAUDE.md rule 2). See ADR-001's "Independent review
-finding" for why this still needs an explicit human decision.
+Targets both duckdb and databricks through one set of SQL strings, authored once in duckdb
+dialect -- emitters/sql_dialect.py transpiles per target (ADR-001's resolution; see that file's
+docstring for what was verified before trusting it, and its own docstring for what still isn't
+a clean transpile and was restructured instead of dialect-branched).
 """
 from __future__ import annotations
 
@@ -43,10 +44,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-import duckdb
 import yaml
 
 from emitters.control_plane import compile_source_registration, ensure_control_schema
+from emitters.sql_dialect import SqlConnection, connect as sql_connect
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -213,7 +214,7 @@ def _extract_batches(contract: dict) -> tuple[list[pathlib.Path] | None, list[Ba
 # --------------------------------------------------------------------------- FQC
 
 def _trailing_median(
-    con: duckdb.DuckDBPyConnection, control: str, source_id: str, value_col: str, window: int = 7,
+    con: SqlConnection, control: str, source_id: str, value_col: str, window: int = 7,
 ) -> float | None:
     values = [
         r[0] for r in con.execute(
@@ -226,7 +227,7 @@ def _trailing_median(
 
 
 def _run_fqc(
-    con: duckdb.DuckDBPyConnection, control: str, source_id: str, batch: Batch, checks: dict[str, Any],
+    con: SqlConnection, control: str, source_id: str, batch: Batch, checks: dict[str, Any],
 ) -> tuple[bool, str]:
     row_count, col_count = len(batch.rows), len(batch.header)
 
@@ -266,7 +267,7 @@ def _run_fqc_unstructured(files: list[pathlib.Path], checks: dict[str, Any]) -> 
 # --------------------------------------------------------------------------- stage / DQC
 
 def _stage_rows(
-    con: duckdb.DuckDBPyConnection, bronze: str, source_id: str, schema: list[dict], batch: Batch,
+    con: SqlConnection, bronze: str, source_id: str, schema: list[dict], batch: Batch,
     run_id: str, data_catalogue_id: int,
 ) -> None:
     """Loads one batch's rows into a fresh staging table. Timestamp/decimal-typed columns are
@@ -283,6 +284,7 @@ def _stage_rows(
     ingested_at = datetime.now(timezone.utc)
     insert_sql = f"insert into {bronze}._staging_{source_id} values ({', '.join(['?'] * (6 + len(schema)))})"
 
+    all_rows = []
     for i, raw_row in enumerate(batch.rows, start=1):
         by_name = dict(zip(batch.header, raw_row))
         record_hash = hashlib.sha256("|".join(str(v) for v in raw_row).encode()).hexdigest()
@@ -294,14 +296,15 @@ def _stage_rows(
             elif col["type"] in ("decimal", "float") and isinstance(val, str) and val != "":
                 val = float(val)
             typed_values.append(val)
-        con.execute(
-            insert_sql,
-            [data_catalogue_id, i, run_id, batch.name, ingested_at, record_hash, *typed_values],
-        )
+        all_rows.append([data_catalogue_id, i, run_id, batch.name, ingested_at, record_hash, *typed_values])
+
+    _BATCH_SIZE = 1000
+    for chunk_start in range(0, len(all_rows), _BATCH_SIZE):
+        con.executemany(insert_sql, all_rows[chunk_start:chunk_start + _BATCH_SIZE])
 
 
 def _eval_quality_rules(
-    con: duckdb.DuckDBPyConnection, control: str, bronze: str, source_id: str, rules: list[dict],
+    con: SqlConnection, control: str, bronze: str, source_id: str, rules: list[dict],
     run_id: str, data_catalogue_id: int,
 ) -> bool:
     table = f"{bronze}._staging_{source_id}"
@@ -372,24 +375,20 @@ def _quarantine_batch(batch: Batch, files: list[pathlib.Path] | None, quarantine
 def run(source_id: str, target: str = "duckdb") -> dict[str, Any]:
     contract = _load_contract(source_id)
     platform = _load_platform(target)
-    if target != "duckdb":
-        raise NotImplementedError("Only the duckdb target is implemented so far (ADR-001 still open for Databricks).")
 
     control = platform["storage"]["control"]
     bronze = platform["storage"]["bronze"]
-    duckdb_path = REPO_ROOT / "harness" / "jarvis.duckdb"
-    duckdb_path.parent.mkdir(parents=True, exist_ok=True)
 
     run_id = str(uuid.uuid4())
     started_at = datetime.now(timezone.utc)
     counts = {"files_seen": 0, "files_accepted": 0, "files_quarantined": 0, "rows_loaded": 0}
     status, error_message = "failed", None
-    con = None
+    con: SqlConnection | None = None
     is_unstructured = contract["connection"]["type"] == "unstructured"
     schema = contract["bronze_schema"] if is_unstructured else contract["schema"]
 
     try:
-        con = duckdb.connect(str(duckdb_path))
+        con = sql_connect(target, platform)
         ensure_control_schema(con, control)
         con.execute(f"create schema if not exists {bronze}")
         compile_source_registration(con, contract, control)

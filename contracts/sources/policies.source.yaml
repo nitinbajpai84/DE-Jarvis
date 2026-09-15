@@ -1,0 +1,102 @@
+# ----------------------------------------------------------------------
+# S006  policies  (file)
+# ----------------------------------------------------------------------
+$schema: jarvis/source/v1
+source_id: policies
+domain: insurance
+owner: data-eng@example.com
+classification: internal
+connection:
+  type: file
+  path: harness/landing/policies/policies_*.csv
+  format: csv
+  delimiter: ','
+  header: true
+  encoding: utf-8
+arrival:
+  cadence: daily
+  expected_by: 06:00 Asia/Singapore
+load:
+  strategy: append
+  primary_key:
+  - policy_id
+schema:
+- name: policy_id
+  type: string
+  nullable: false
+  description: Natural key
+- name: policy_number
+  type: string
+  nullable: false
+- name: customer_id
+  type: string
+  nullable: false
+  description: FK to customers
+  pii: true
+- name: agent_id
+  type: string
+  nullable: true
+  description: FK to agents
+- name: product_id
+  type: string
+  nullable: false
+  description: FK to products
+- name: policy_status
+  type: string
+  nullable: false
+  description: quoted|issued|active|cancelled|expired|renewed|lapsed
+- name: effective_date
+  type: date
+  nullable: false
+  format: '%Y-%m-%d'
+- name: expiration_date
+  type: date
+  nullable: false
+  format: '%Y-%m-%d'
+- name: annual_premium
+  type: decimal
+  nullable: false
+- name: written_premium
+  type: decimal
+  nullable: false
+file_checks:
+  min_rows: 100
+  expected_columns: 10
+  row_count_deviation_pct: 40
+  reject_on_schema_drift: true
+  quarantine_path: harness/quarantine/policies/
+quality_rules:
+- rule: not_null
+  columns:
+  - policy_id
+  - policy_number
+  - customer_id
+  - product_id
+  severity: error
+- rule: unique
+  columns:
+  - policy_number
+  severity: error
+- rule: accepted_values
+  columns:
+  - policy_status
+  severity: error
+  params:
+    values:
+    - quoted
+    - issued
+    - active
+    - cancelled
+    - expired
+    - renewed
+    - lapsed
+- rule: range
+  columns:
+  - annual_premium
+  severity: error
+  params:
+    min: 0
+    max: 1000000
+sla:
+  freshness_hours: 24
+  completeness_pct: 99

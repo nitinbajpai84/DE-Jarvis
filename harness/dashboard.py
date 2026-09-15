@@ -1,20 +1,24 @@
 """Generates a static HTML snapshot of the bronze-layer control plane state --
 harness/dashboard.html -- for reviewing what's been ingested, what passed/failed, and why,
-before signing off a phase. Reads harness/jarvis.duckdb; run after any bronze_loader run to
-refresh it.
+before signing off a phase. Run after any bronze_loader run to refresh it; pass --target
+databricks to report on that platform's control plane instead of the local duckdb one (each
+target's control/bronze schemas are independent, per contracts/platform/<target>.yaml, so a
+single dashboard run reports on exactly one target at a time).
 """
 from __future__ import annotations
 
+import argparse
 import html
-import json
 import pathlib
+import sys
 from datetime import datetime, timezone
 
-import duckdb
 import yaml
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+from emitters.sql_dialect import connect as sql_connect  # noqa: E402
+
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
-DB_PATH = REPO_ROOT / "harness" / "jarvis.duckdb"
 OUT_PATH = REPO_ROOT / "harness" / "dashboard.html"
 
 
@@ -23,13 +27,20 @@ def _contract(source_id: str) -> dict:
     return yaml.safe_load(p.read_text()) if p.exists() else {}
 
 
-def gather() -> dict:
-    con = duckdb.connect(str(DB_PATH), read_only=True)
+def _load_platform(target: str) -> dict:
+    return yaml.safe_load((REPO_ROOT / "contracts" / "platform" / f"{target}.yaml").read_text())
+
+
+def gather(target: str = "duckdb") -> dict:
+    platform = _load_platform(target)
+    control, bronze = platform["storage"]["control"], platform["storage"]["bronze"]
+    con = sql_connect(target, platform)
     sources = [r[0] for r in con.execute(
-        "select distinct source_id from control.run_registry order by source_id"
+        f"select distinct source_id from {control}.run_registry order by source_id"
     ).fetchall()]
 
-    out = {"generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "sources": []}
+    out = {"generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+           "target": target, "sources": []}
 
     for sid in sources:
         contract = _contract(sid)
@@ -37,33 +48,33 @@ def gather() -> dict:
         domain = contract.get("domain", "")
 
         runs = con.execute(
-            "select run_id, status, error_message, started_at, files_seen, files_accepted, "
-            "files_quarantined, rows_loaded from control.run_registry where source_id = ? "
-            "order by started_at", [sid],
+            f"select run_id, status, error_message, started_at, files_seen, files_accepted, "
+            f"files_quarantined, rows_loaded from {control}.run_registry where source_id = ? "
+            f"order by started_at", [sid],
         ).fetchall()
         latest = runs[-1] if runs else None
 
         try:
-            bronze_rows = con.execute(f"select count(*) from bronze.{sid}").fetchone()[0]
-        except duckdb.CatalogException:
+            bronze_rows = con.execute(f"select count(*) from {bronze}.{sid}").fetchone()[0]
+        except Exception:  # noqa: BLE001 -- exception type differs by driver; absence just means 0 rows
             bronze_rows = 0
 
         batches = con.execute(
-            "select fa.file_name, fa.size_kb, fa.row_count, fa.column_count, fa.fqc_passed, "
-            "fa.action, fa.arrival_time, doc.data_catalogue_id "
-            "from control.file_audit fa "
-            "left join control.data_object_catalogue doc "
-            "  on doc.file_name = fa.file_name and doc.data_source_id = ? "
-            "where fa.run_id in (select run_id from control.run_registry where source_id = ?) "
-            "order by fa.arrival_time", [sid, sid],
+            f"select fa.file_name, fa.size_kb, fa.row_count, fa.column_count, fa.fqc_passed, "
+            f"fa.action, fa.arrival_time, doc.data_catalogue_id "
+            f"from {control}.file_audit fa "
+            f"left join {control}.data_object_catalogue doc "
+            f"  on doc.file_name = fa.file_name and doc.data_source_id = ? "
+            f"where fa.run_id in (select run_id from {control}.run_registry where source_id = ?) "
+            f"order by fa.arrival_time", [sid, sid],
         ).fetchall()
 
         dq = con.execute(
-            "select dq.rule_type, dq.columns, dq.severity, dq.passed, dq.failed_row_count, "
-            "doc.file_name "
-            "from control.dq_results dq "
-            "join control.data_object_catalogue doc on dq.data_catalogue_id = doc.data_catalogue_id "
-            "where doc.data_source_id = ? order by dq.evaluated_at", [sid],
+            f"select dq.rule_type, dq.columns, dq.severity, dq.passed, dq.failed_row_count, "
+            f"doc.file_name "
+            f"from {control}.dq_results dq "
+            f"join {control}.data_object_catalogue doc on dq.data_catalogue_id = doc.data_catalogue_id "
+            f"where doc.data_source_id = ? order by dq.evaluated_at", [sid],
         ).fetchall()
 
         out["sources"].append({
@@ -192,7 +203,8 @@ def render(data: dict) -> str:
         for s in data["sources"]
     )
 
-    return f"""<title>Bronze Control Room</title>
+    title_suffix = "" if data["target"] == "duckdb" else f" — {data['target'].title()}"
+    return f"""<title>Bronze Control Room{title_suffix}</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
 :root {{
@@ -305,7 +317,7 @@ tr:last-child td {{ border-bottom: none; }}
 
 <div class="wrap">
   <header>
-    <h1>Bronze Control Room</h1>
+    <h1>Bronze Control Room <span class="conn-type">-- {html.escape(data["target"])}</span></h1>
     <div class="meta">generated {html.escape(data["generated_at"])}</div>
   </header>
   <p class="subtitle">Landing-zone to bronze status for every source in the catalogue — file/batch checks, data-quality results, and what actually made it into <span class="mono">bronze.*</span>.</p>
@@ -325,9 +337,13 @@ tr:last-child td {{ border-bottom: none; }}
 
 
 def main() -> None:
-    data = gather()
-    OUT_PATH.write_text(render(data), encoding="utf-8")
-    print(f"wrote {OUT_PATH} ({len(data['sources'])} sources)")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--target", default="duckdb", help="duckdb (default) or databricks")
+    args = parser.parse_args()
+    data = gather(args.target)
+    out_path = OUT_PATH if args.target == "duckdb" else OUT_PATH.with_name(f"dashboard_{args.target}.html")
+    out_path.write_text(render(data), encoding="utf-8")
+    print(f"wrote {out_path} ({len(data['sources'])} sources, target={args.target})")
 
 
 if __name__ == "__main__":

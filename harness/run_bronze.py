@@ -14,7 +14,8 @@ from emitters.bronze_loader import run
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", required=True, help="source_id, e.g. 'orders'")
+    parser.add_argument("--target", default="duckdb", help="duckdb (default) or databricks")
     args = parser.parse_args()
-    summary = run(args.source)
+    summary = run(args.source, args.target)
     for k, v in summary.items():
         print(f"{k:<18} {v}")
