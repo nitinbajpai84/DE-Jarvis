@@ -14,3 +14,4 @@ dbt/profiles.yml
 harness/dashboard.html
 harness/dashboard_*.html
 harness/agent_dashboard.html
+harness/insights_report.html

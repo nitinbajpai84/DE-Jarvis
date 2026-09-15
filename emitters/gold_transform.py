@@ -160,6 +160,52 @@ def build_mart(con: SqlConnection, gold: str, silver: str, mart: dict, gold_cont
     return con.execute(f"select count(*) from {gold}.{mart['name']}").fetchone()[0]
 
 
+def build_monthly_performance(con: SqlConnection, gold: str, silver: str) -> int:
+    """Monthly written/earned premium + claims paid + loss ratio, overall (not split by line --
+    45 months x 5 lines would thin each series out for a trend chart). NOT driven by
+    gold_model_template.xlsx: it needs a computed grain (date_trunc on a date-typed column
+    that lands as a string in bronze/silver per R3 -- specs/P1/requirements.md -- so needs an
+    explicit cast too), which emitters/gold_model_compiler.py's contract shape doesn't support
+    yet (grain there is always a literal physical column). A one-off, not a pattern to copy for
+    the next mart without extending the contract shape first -- documented here, not hidden."""
+    # Joined to dim_policy (current) the same way mart_premium_by_product/mart_claims_by_status
+    # are, and filtered to a resolved policy the same way -- otherwise this mart and the
+    # headline KPIs (which do apply that filter) describe two different populations. Caught by
+    # comparing this mart's pooled ratio against the headline ratio before shipping: they
+    # should be the same number computed two ways, and weren't, until this join was added.
+    con.execute(f"drop table if exists {gold}._monthly_premium")
+    con.execute(
+        f"create table {gold}._monthly_premium as "
+        f"select date_trunc('month', cast(f.premium_period_start as date)) as month, "
+        f"sum(f.written_premium_amount) as written_premium, sum(f.earned_premium_amount) as earned_premium "
+        f"from {silver}.fact_premium f "
+        f"join {silver}.dim_policy dp on dp.policy_id = f.policy_id and dp.row_is_current "
+        f"group by 1"
+    )
+    con.execute(f"drop table if exists {gold}._monthly_claims")
+    con.execute(
+        f"create table {gold}._monthly_claims as "
+        f"select date_trunc('month', cast(f.loss_date as date)) as month, "
+        f"sum(f.paid_amount) as claims_paid, count(distinct f.claim_id) as claim_count "
+        f"from {silver}.fact_claim f "
+        f"join {silver}.dim_policy dp on dp.policy_id = f.policy_id and dp.row_is_current "
+        f"group by 1"
+    )
+    con.execute(f"drop table if exists {gold}.mart_monthly_performance")
+    con.execute(
+        f"create table {gold}.mart_monthly_performance as "
+        f"select coalesce(p.month, c.month) as month, "
+        f"coalesce(p.written_premium, 0) as written_premium, coalesce(p.earned_premium, 0) as earned_premium, "
+        f"coalesce(c.claims_paid, 0) as claims_paid, coalesce(c.claim_count, 0) as claim_count, "
+        f"coalesce(c.claims_paid, 0) / nullif(p.earned_premium, 0) as loss_ratio "
+        f"from {gold}._monthly_premium p full outer join {gold}._monthly_claims c on p.month = c.month "
+        f"order by 1"
+    )
+    con.execute(f"drop table if exists {gold}._monthly_premium")
+    con.execute(f"drop table if exists {gold}._monthly_claims")
+    return con.execute(f"select count(*) from {gold}.mart_monthly_performance").fetchone()[0]
+
+
 def run(domain: str, target: str = "duckdb") -> dict[str, int]:
     gold_contract = _load_gold(domain)
     platform = _load_platform(target)
@@ -171,6 +217,7 @@ def run(domain: str, target: str = "duckdb") -> dict[str, int]:
         results = {}
         for mart in gold_contract["marts"]:
             results[mart["name"]] = build_mart(con, gold, silver, mart, gold_contract)
+        results["mart_monthly_performance"] = build_monthly_performance(con, gold, silver)
         return results
     finally:
         con.close()

@@ -260,7 +260,17 @@ for i in range(N_CLAIMS):
     cov_id = random.choice(covs) if covs else ""
     loss = _rand_date(date(2024, 1, 1), TODAY)
     report = loss + timedelta(days=random.randint(0, 14))
-    paid = round(random.uniform(200, 40000), 2)
+    # Realistic severity mix, not a flat uniform(200, 40000): that range made aggregate paid
+    # claims run ~13x earned premium (a 1,700%+ "loss ratio"), because generating claims and
+    # premiums independently with no cross-reference to a plausible ratio produced a number
+    # that was arithmetically correct but not a believable KPI. 95% attritional (small,
+    # everyday claims), 5% large losses (the fat tail every P&C book actually has) -- tuned so
+    # the aggregate lands in the realistic 60-70% P&C loss-ratio range against this dataset's
+    # earned premium, not just "some smaller number."
+    if random.random() < 0.05:
+        paid = round(random.uniform(3000, 15000), 2)
+    else:
+        paid = round(random.uniform(50, 1000), 2)
     row = [f"CLM{i+1:06d}", f"CN-{i+1:08d}", plid, cid, cov_id, loss.isoformat(), report.isoformat(),
            random.choice(CLAIM_STATUS), random.choice(LOSS_CAUSES), paid,
            round(paid * random.uniform(0, 0.3), 2)]
