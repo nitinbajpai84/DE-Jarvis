@@ -406,6 +406,20 @@ def run(source_id: str, target: str = "duckdb") -> dict[str, Any]:
 
         for batch in batches:
             counts["files_seen"] += 1
+
+            # Idempotency: a batch already loaded successfully in a prior run is skipped, not
+            # reprocessed. Without this, re-running the loader against an unchanged landing
+            # folder (the normal case -- new files land alongside old ones, nothing deletes
+            # yesterday's) silently duplicates every previously-accepted row on each run, and
+            # skews _run_fqc's trailing-median deviation check with repeated identical history.
+            already_loaded = con.execute(
+                f"select 1 from {control}.file_audit where file_name = ? and action = 'loaded' limit 1",
+                [batch.name],
+            ).fetchone()
+            if already_loaded:
+                counts["files_skipped"] = counts.get("files_skipped", 0) + 1
+                continue
+
             arrival_time = datetime.now(timezone.utc)
 
             if is_unstructured:

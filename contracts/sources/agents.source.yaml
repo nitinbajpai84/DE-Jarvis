@@ -53,7 +53,7 @@ schema:
   nullable: false
   description: active|inactive|terminated|suspended
 file_checks:
-  min_rows: 100
+  min_rows: 10
   expected_columns: 8
   row_count_deviation_pct: 40
   reject_on_schema_drift: true

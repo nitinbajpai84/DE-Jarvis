@@ -1,0 +1,169 @@
+# Contract schema: MODEL (silver). Compiled from docs/templates/jarvis_silver_model_template.xlsx -- do not hand-edit, re-run the compiler instead.
+$schema: jarvis/model/v1
+domain: insurance
+grain_statement: One row per business entity or transaction, current-state conformed
+  in silver.
+standardisation:
+  date_format: ISO-8601
+  timezone: UTC
+  decimal_precision:
+  - 18
+  - 4
+  string_case: trim_only
+  null_tokens:
+  - 'NULL'
+  - N/A
+  - '-'
+dimensions:
+- name: dim_party
+  type: scd1
+  business_key:
+  - party_id
+  surrogate_key: party_sk
+  tracked_attributes:
+  - display_name
+  - email
+  - phone
+  source:
+  - parties
+- name: dim_address
+  type: scd1
+  business_key:
+  - address_id
+  surrogate_key: address_sk
+  tracked_attributes:
+  - line1
+  - city
+  - state_code
+  - postal_code
+  - is_current
+  source:
+  - addresses
+- name: dim_product
+  type: scd1
+  business_key:
+  - product_id
+  surrogate_key: product_sk
+  tracked_attributes:
+  - product_name
+  - active_flag
+  source:
+  - products
+- name: dim_customer
+  type: scd2
+  business_key:
+  - customer_id
+  surrogate_key: customer_sk
+  effective_from: row_start_date
+  effective_to: row_end_date
+  current_flag: row_is_current
+  tracked_attributes:
+  - lifecycle_stage
+  - risk_tier
+  - customer_segment
+  - engagement_score
+  source:
+  - customers
+- name: dim_agent
+  type: scd2
+  business_key:
+  - agent_id
+  surrogate_key: agent_sk
+  effective_from: row_start_date
+  effective_to: row_end_date
+  current_flag: row_is_current
+  tracked_attributes:
+  - status
+  - channel
+  - territory_code
+  source:
+  - agents
+- name: dim_policy
+  type: scd2
+  business_key:
+  - policy_id
+  surrogate_key: policy_sk
+  effective_from: row_start_date
+  effective_to: row_end_date
+  current_flag: row_is_current
+  tracked_attributes:
+  - policy_status
+  - annual_premium
+  - written_premium
+  source:
+  - policies
+facts:
+- name: fact_policy_coverage
+  grain:
+  - policy_coverage_id
+  type: transaction
+  source:
+  - policy_coverages
+  foreign_keys:
+  - dimension: dim_policy
+    'on': policy_id
+  measures:
+  - name: limit_amount
+    type: additive
+  - name: deductible_amount
+    type: additive
+- name: fact_premium
+  grain:
+  - premium_id
+  type: transaction
+  source:
+  - premiums
+  foreign_keys:
+  - dimension: dim_policy
+    'on': policy_id
+  measures:
+  - name: written_premium_amount
+    type: additive
+  - name: earned_premium_amount
+    type: additive
+- name: fact_payment
+  grain:
+  - payment_id
+  type: transaction
+  source:
+  - payments
+  foreign_keys:
+  - dimension: dim_policy
+    'on': policy_id
+  - dimension: dim_customer
+    'on': customer_id
+    late_arriving: inferred_member
+  measures:
+  - name: billed_amount
+    type: additive
+  - name: paid_amount
+    type: additive
+- name: fact_claim
+  grain:
+  - claim_id
+  type: transaction
+  source:
+  - claims
+  foreign_keys:
+  - dimension: dim_policy
+    'on': policy_id
+  - dimension: dim_customer
+    'on': customer_id
+    late_arriving: inferred_member
+  measures:
+  - name: paid_amount
+    type: additive
+  - name: reserve_amount
+    type: additive
+  - name: incurred_amount
+    type: additive
+    expression: paid_amount + reserve_amount
+conformance:
+  shared_dimensions:
+  - dim_party
+  - dim_address
+  - dim_product
+  - dim_customer
+  - dim_agent
+  - dim_policy
+  reject_orphan_fks: false
