@@ -1,0 +1,67 @@
+# Contract schema: SOURCE (the "data catalogue" you feed the ingestion agent)
+# One file per source entity. This is the sole input to Phase 1.
+$schema: jarvis/source/v1
+source_id:        string   # unique, snake_case
+domain:           string   # sales | finance | ops ...
+owner:            string   # accountable human
+classification:   enum[public, internal, confidential, pii]
+
+connection:
+  type:           enum[file, database, api, stream]
+  # --- type: file ---
+  path:           string   # glob, e.g. s3://landing/orders/orders_*.csv
+  format:         enum[csv, json, parquet, avro, xml, fixed_width]
+  compression:    string
+  delimiter:      string
+  header:         bool
+  encoding:       string
+  # --- type: database ---
+  dialect:        string
+  table:          string
+  incremental_column: string
+  # --- type: api ---
+  endpoint:       string
+  auth:           enum[none, basic, oauth2, api_key]
+  secret_ref:     string   # e.g. env:ORDERS_API_KEY -- SECRET REFERENCE ONLY, never a value
+  pagination:     enum[none, offset, cursor, page]
+
+arrival:
+  cadence:        enum[hourly, daily, weekly, monthly, adhoc, continuous]
+  expected_by:    string   # cron or local time, e.g. "06:00 Asia/Singapore"
+  grace_minutes:  int
+  late_action:    enum[alert, fail, skip]
+
+load:
+  strategy:       enum[full_refresh, append, merge, scd2]
+  primary_key:    [string]
+  watermark:      string
+  dedupe_on:      [string]
+
+schema:
+  - name:         string
+    type:         enum[string, int, bigint, decimal, float, bool, date, timestamp]
+    nullable:     bool
+    description:  string
+    pii:          bool
+    format:       string   # e.g. "%d/%m/%Y" for dates needing standardisation
+
+# --- Landing / file-completeness checks (Phase 1, pre-bronze) ---
+file_checks:
+  min_rows:       int
+  max_rows:       int
+  expected_columns: int
+  row_count_deviation_pct: int   # vs trailing 7-run median -> the "dip/spike" alert
+  size_deviation_pct: int
+  reject_on_schema_drift: bool
+  quarantine_path: string
+
+# --- Column-level data quality (Phase 1, on bronze) ---
+quality_rules:
+  - rule:         enum[not_null, unique, accepted_values, range, regex, referential, freshness]
+    columns:      [string]
+    params:       map
+    severity:     enum[error, warn]     # error = quarantine batch, warn = load + alert
+
+sla:
+  freshness_hours: int
+  completeness_pct: float

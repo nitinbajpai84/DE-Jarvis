@@ -1,0 +1,17 @@
+# Copy to ~/.dbt/profiles.yml. Values come from .env -- use env_var(), never literals.
+jarvis:
+  target: dev
+  outputs:
+    dev:                       # local, $0, use this for Phases 1-4
+      type: duckdb
+      path: ../harness/jarvis.duckdb
+      threads: 4
+
+    databricks:                # Phase 5 platform validation
+      type: databricks
+      host: "{{ env_var('DATABRICKS_HOST') | replace('https://','') }}"
+      http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      catalog: "{{ env_var('DATABRICKS_CATALOG') }}"
+      schema: silver
+      threads: 4

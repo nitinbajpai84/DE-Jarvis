@@ -1,0 +1,54 @@
+# Contract schema: MODEL (silver). Drafted conversationally by the Data Architect Agent,
+# approved by a human, then consumed by the Silver DE Agent.
+$schema: jarvis/model/v1
+domain: sales
+grain_statement: "One row per order line, per business day, in reporting currency."
+
+standardisation:
+  date_format: ISO-8601
+  timezone: UTC
+  decimal_precision: [18, 4]
+  string_case: trim_only
+  null_tokens: ["", "NULL", "N/A", "-"]
+  currency_target: SGD
+
+dimensions:
+  - name: dim_customer
+    type: scd2
+    business_key: [customer_id]
+    surrogate_key: customer_sk
+    effective_from: valid_from
+    effective_to: valid_to
+    current_flag: is_current
+    tracked_attributes: [customer_name, segment, country]
+    source: [customers]
+
+  - name: dim_date
+    type: static
+    generate: {from: "2020-01-01", to: "2030-12-31"}
+
+  - name: dim_product
+    type: scd1
+    business_key: [product_id]
+    surrogate_key: product_sk
+    source: [products]
+
+facts:
+  - name: fct_order_line
+    grain: [order_id, line_number]
+    type: transaction
+    source: [orders, order_lines]
+    degenerate_dimensions: [order_id, status, currency]
+    foreign_keys:
+      - {dimension: dim_customer, on: customer_id, late_arriving: inferred_member}
+      - {dimension: dim_date,     on: order_date}
+      - {dimension: dim_product,  on: product_id,  late_arriving: inferred_member}
+    measures:
+      - {name: gross_amount,    type: additive, source_column: gross_amount}
+      - {name: discount_amount, type: additive}
+      - {name: net_amount,      type: additive, expression: "gross_amount - discount_amount"}
+      - {name: quantity,        type: additive}
+
+conformance:
+  shared_dimensions: [dim_customer, dim_date]
+  reject_orphan_fks: false     # false -> inferred member; true -> quarantine

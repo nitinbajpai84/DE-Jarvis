@@ -1,0 +1,41 @@
+# Contract schema: GOLD / SEMANTIC. Business logic, agreed conversationally then frozen.
+$schema: jarvis/gold/v1
+domain: sales
+consumers: [bi_dashboard, finance_export]
+
+metrics:
+  - name: net_revenue
+    expression: "SUM(net_amount)"
+    grain: [date, country, segment]
+    filters: ["status <> 'CANCELLED'"]
+    format: currency_sgd
+    owner: finance@example.com
+  - name: order_count
+    expression: "COUNT(DISTINCT order_id)"
+    grain: [date, country]
+  - name: aov
+    expression: "net_revenue / NULLIF(order_count, 0)"
+    depends_on: [net_revenue, order_count]
+    non_additive: true
+
+business_rules:
+  - id: BR-001
+    statement: "Cancelled orders are excluded from revenue metrics but retained in order_count_gross."
+    applies_to: [net_revenue]
+  - id: BR-002
+    statement: "Revenue is reported in SGD using the rate effective on order_date."
+    applies_to: [net_revenue, aov]
+
+marts:
+  - name: mart_sales_daily
+    grain: [date, country, segment]
+    metrics: [net_revenue, order_count, aov]
+    materialisation: table
+
+dashboards:
+  - name: Sales Overview
+    tiles:
+      - {type: line,  metric: net_revenue, x: date, series: country}
+      - {type: bar,   metric: order_count, x: country}
+      - {type: kpi,   metric: aov}
+      - {type: table, metrics: [net_revenue, order_count, aov], by: [segment]}

@@ -1,0 +1,92 @@
+# CONTROL PLANE — modelled on the proven Ingestion Master Data Model, expressed as a
+# contract so it is version-controlled in Git and emitted per platform.
+#
+# KEY CHANGE vs the original accelerator: config lives in Git as YAML and is COMPILED
+# into these tables. Config that lives only in Delta tables cannot be diffed, reviewed,
+# rolled back, or read by an agent. Git is the source of truth; the tables are runtime.
+$schema: jarvis/control/v1
+
+config_tables:
+  # Compiled from contracts/sources/*.source.yaml
+  data_system:
+    grain: one row per source system
+    columns: [data_source_id, data_source_name, data_source_type, data_source_code,
+              data_source_country, description, is_active]
+
+  config_data_source_file:
+    grain: one row per source file pattern
+    columns: [data_file_code, data_source_id, file_grouping, file_type, file_name,
+              file_name_regex, file_format, file_extension, load_name,
+              landing_layer_file_name, bronze_table_name, effective_date_in_file_name,
+              effective_date_format, is_file_delimited, delimiter, text_qualifier,
+              estimated_file_size_kb, has_column_headings, column_header_row_number,
+              has_metadata_header, has_metadata_footer, has_multiple_worksheets,
+              extract_all_worksheets, file_owner_name, file_owner_role, storage_location,
+              frequency, file_timing, is_file_mandatory, is_file_active,
+              sla_arrival_cutoff_time]
+
+  config_table:
+    grain: one row per target table
+    columns: [table_id, table_source, source_system, layer, table_type, has_primary_key,
+              description, is_dimension_fact, is_full_load, execution_order]
+
+  fqc_rules:   # File Quality Checks — run in landing, BEFORE bronze
+    columns: [rule_id, data_file_code, rule_type, params, severity, owner]
+  dqc_rules:   # Data Quality Checks — run on bronze/silver
+    columns: [rule_id, object_id, rule_type, columns, params, severity, owner]
+  cdm_build_phase:
+    columns: [phase, object_id, dep_object, dependency_level, schema_name, db_name,
+              execution_type, sort_order]
+
+log_tables:
+  batch:
+    columns: [batch_id, batch_name, batch_type, is_master_batch, master_batch_id, is_active]
+  batch_log:
+    columns: [batch_log_id, batch_id, batch_status, batch_runtime_id, batch_activity_name,
+              status_message, start_time, end_time, is_manual_trigger]
+  activity_log:
+    columns: [activity_id, batch_log_id, object_execution_log_id, module, layer,
+              target_table_name, status, error_message, inserted_record_count,
+              updated_record_count, deleted_record_count]
+  data_object_catalogue:   # one row per INGESTED FILE — the lineage anchor
+    columns: [data_catalogue_id, data_source_id, file_name, file_location, number_of_rows,
+              file_size_kb, file_date, create_date, checksum, loader_status, latest_stage,
+              stage_status, is_fqc_passed]
+  dqc_results:
+    columns: [result_id, rule_id, batch_log_id, object_id, layer, passed, observed_value,
+              failed_row_count, severity, evaluated_at]
+
+# ---------------------------------------------------------------------------
+# LINEAGE CONTRACT — adopted from the proven CDM design. Non-negotiable.
+# ---------------------------------------------------------------------------
+lineage:
+  bronze_row_columns:
+    - data_catalogue_id   # which FILE this row came from
+    - source_record_id    # which ROW within that file (monotonic, 1-based)
+    - _batch_log_id
+    - _ingested_at
+  silver_row_columns:
+    - data_source_id      # which SYSTEM
+    - data_catalogue_id   # which FILE
+    - source_record_id    # which ROW
+    - _batch_log_id
+  rationale: >
+    Carrying the triple (data_source_id, data_catalogue_id, source_record_id) through to
+    silver lets any DQ issue in a report be traced to an exact row in an exact file from
+    an exact provider. This is the single highest-value thing in the whole control plane.
+
+# ---------------------------------------------------------------------------
+# SCD2 CONTRACT — merge_key / merge_hash pattern
+# ---------------------------------------------------------------------------
+scd2:
+  columns: [row_start_date, row_end_date, row_is_current]
+  merge_key: business key column(s)
+  merge_hash: hash of tracked_attributes only
+  logic:
+    - merge_key match FALSE                      -> INSERT new version
+    - merge_key match TRUE, merge_hash match TRUE  -> NO ACTION
+    - merge_key match TRUE, merge_hash match FALSE -> expire current (row_end_date = load_date,
+                                                      row_is_current = N) and INSERT new version
+  note: >
+    merge_hash covers ONLY tracked_attributes. Hashing every column is the classic bug -
+    it creates a new version every time an irrelevant field wobbles.

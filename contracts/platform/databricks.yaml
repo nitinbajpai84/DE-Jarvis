@@ -1,0 +1,19 @@
+$schema: jarvis/platform/v1
+target: databricks
+purpose: platform validation on Databricks Free Edition
+sql_dialect: databricks
+dbt_adapter: dbt-databricks
+dlt_destination: databricks
+storage:
+  catalog: jarvis
+  schemas: {bronze: bronze, silver: silver, gold: gold, control: control}
+capabilities: {merge: true, scd2_snapshot: true, streaming: true, dashboards: true}
+constraints:
+  # Verified against current Databricks Free Edition documentation
+  - serverless_compute_only          # no custom cluster configs, no init scripts
+  - no_scala_or_r
+  - restricted_outbound_internet     # Slack webhooks from notebooks are unreliable
+  - one_workspace_one_metastore
+  - no_account_level_apis
+  - fair_use_daily_quotas
+  - non_commercial_use_only

@@ -1,0 +1,9 @@
+dlt[duckdb,filesystem]>=1.5
+dbt-core>=1.9
+dbt-duckdb>=1.9
+duckdb>=1.1
+sqlglot>=26
+soda-core-duckdb>=3.3
+pydantic>=2
+pyyaml>=6
+faker>=30

@@ -1,0 +1,13 @@
+__pycache__/
+*.duckdb
+harness/landing/
+harness/quarantine/
+.env
+.dbt/
+target/
+logs/
+.venv/
+dbt_packages/
+*.egg-info/
+dbt/.user.yml
+dbt/profiles.yml

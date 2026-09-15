@@ -1,0 +1,61 @@
+# UNSTRUCTURED source example. Same contract shape, different connection.type.
+$schema: jarvis/source/v1
+source_id: policy_docs
+domain: compliance
+owner: data-eng@example.com
+classification: confidential
+
+connection:
+  type: unstructured
+  path: harness/landing/policy_docs/**/*
+  formats: [pdf, docx, txt, eml, html]
+  max_file_mb: 50
+
+arrival: {cadence: adhoc, late_action: alert}
+
+load:
+  strategy: append
+  primary_key: [document_id]
+
+# Bronze for unstructured = ONE ROW PER DOCUMENT. Binary stays in the volume/filesystem.
+extraction:
+  text: true
+  ocr_if_no_text_layer: true
+  page_level: true            # emit one row per page as well as per document
+  preserve_original: true     # never mutate the source binary
+
+bronze_schema:
+  - {name: document_id,   type: string}
+  - {name: file_path,     type: string}
+  - {name: mime_type,     type: string}
+  - {name: page_count,    type: int}
+  - {name: char_count,    type: int}
+  - {name: extracted_text,type: string}
+  - {name: extraction_method, type: string}   # native | ocr
+  - {name: extraction_confidence, type: float}
+
+file_checks:
+  min_files: 1
+  max_file_mb: 50
+  reject_zero_byte: true
+  quarantine_path: harness/quarantine/policy_docs/
+
+quality_rules:
+  - {rule: not_null, columns: [document_id, extracted_text], severity: error}
+  - {rule: range,    columns: [char_count], params: {min: 50}, severity: warn}   # likely failed extraction
+  - {rule: range,    columns: [extraction_confidence], params: {min: 0.7}, severity: warn}
+
+# Silver for unstructured = chunks + structured entities lifted OUT of the text.
+silver_shape:
+  chunking: {strategy: recursive, target_tokens: 512, overlap_tokens: 64}
+  entities:
+    - {name: policy_number, method: regex, pattern: "POL-[0-9]{8}"}
+    - {name: effective_date, method: regex}
+    - {name: counterparty,  method: llm_extract, schema: {name: string, country: string}}
+  join_to_structured:
+    on: policy_number
+    target: silver.dim_policy
+  note: >
+    LLM extraction is the ONE place a model runs at data time. It must be a versioned,
+    pinned, cheap model with the prompt stored in the contract, outputs schema-validated,
+    and a confidence recorded. Everything else stays deterministic.
