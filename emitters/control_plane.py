@@ -145,6 +145,22 @@ def compile_source_registration(
          f"{contract['domain']} / {contract['classification']}"],
     )
 
+    # Not every connection.type has a "path" -- database uses "table", api uses "endpoint".
+    # Derive the location/name/format fields per type rather than assuming file-shaped.
+    ctype = conn.get("type")
+    if ctype == "file":
+        location, name, fmt = conn["path"], pathlib.PurePosixPath(conn["path"]).name, conn.get("format")
+        extension = pathlib.PurePosixPath(conn["path"]).suffix.lstrip(".")
+    elif ctype == "database":
+        location, name, fmt, extension = conn["table"], conn["table"], conn.get("dialect"), None
+    elif ctype == "api":
+        location, name, fmt, extension = conn["endpoint"], conn["endpoint"].rsplit("/", 1)[-1], "json", None
+    elif ctype == "unstructured":
+        location, name = conn["path"], pathlib.PurePosixPath(conn["path"]).name
+        fmt, extension = ",".join(conn.get("formats", [])), None
+    else:
+        raise NotImplementedError(f"connection.type={ctype!r} not implemented in compile_source_registration")
+
     con.execute(
         f"""
         insert into {control_schema}.config_data_source_file
@@ -158,12 +174,11 @@ def compile_source_registration(
             storage_location = excluded.storage_location
         """,
         [
-            f"{source_id}_file", source_id, contract["domain"], conn.get("type"),
-            pathlib.PurePosixPath(conn["path"]).name, conn.get("format"),
-            pathlib.PurePosixPath(conn["path"]).suffix.lstrip("."),
-            conn["path"], f"bronze.{source_id}",
+            f"{source_id}_file", source_id, contract["domain"], ctype,
+            name, fmt, extension,
+            location, f"bronze.{source_id}",
             True, None, conn.get("delimiter") is not None, conn.get("delimiter"),
-            conn.get("header", False), conn["path"],
+            conn.get("header", False), location,
             contract.get("arrival", {}).get("cadence"),
             True, contract.get("arrival", {}).get("expected_by"),
         ],

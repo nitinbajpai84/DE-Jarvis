@@ -1,0 +1,66 @@
+# ----------------------------------------------------------------------
+# S003  nyctaxi_trips  (database)
+# ----------------------------------------------------------------------
+$schema: jarvis/source/v1
+source_id: nyctaxi_trips
+domain: mobility
+owner: data-eng@example.com
+classification: public
+connection:
+  type: database
+  dialect: databricks
+  table: samples.nyctaxi.trips
+  incremental_column: tpep_pickup_datetime
+arrival:
+  cadence: adhoc
+  late_action: alert
+load:
+  strategy: full_refresh
+  watermark: tpep_pickup_datetime
+schema:
+- name: tpep_pickup_datetime
+  type: timestamp
+  nullable: false
+  description: Trip start
+- name: tpep_dropoff_datetime
+  type: timestamp
+  nullable: false
+  description: Trip end
+- name: trip_distance
+  type: decimal
+  nullable: true
+  description: Miles
+- name: fare_amount
+  type: decimal
+  nullable: true
+  description: USD
+- name: pickup_zip
+  type: int
+  nullable: true
+- name: dropoff_zip
+  type: int
+  nullable: true
+file_checks:
+  min_rows: 1
+  expected_columns: 6
+  reject_on_schema_drift: true
+  quarantine_path: harness/quarantine/nyctaxi_trips/
+quality_rules:
+- rule: not_null
+  columns:
+  - tpep_pickup_datetime
+  severity: error
+- rule: range
+  columns:
+  - trip_distance
+  severity: warn
+  params:
+    min: 0
+    max: 500
+- rule: range
+  columns:
+  - fare_amount
+  severity: error
+  params:
+    min: 0
+    max: 2000
