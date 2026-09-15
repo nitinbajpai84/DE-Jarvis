@@ -24,11 +24,13 @@ from __future__ import annotations
 
 import argparse
 import pathlib
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 import yaml
 
+from emitters.control_plane import ensure_control_schema, log_run
 from emitters.sql_dialect import SqlConnection, connect as sql_connect
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -124,26 +126,54 @@ def build_fact(con: SqlConnection, silver: str, bronze: str, fact: dict[str, Any
 def run(domain: str, target: str = "duckdb") -> dict[str, Any]:
     model = _load_model(domain)
     platform = _load_platform(target)
-    silver, bronze = platform["storage"]["silver"], platform["storage"]["bronze"]
+    silver, bronze, control = platform["storage"]["silver"], platform["storage"]["bronze"], platform["storage"]["control"]
 
     con = sql_connect(target, platform)
+    ensure_control_schema(con, control)
     try:
         con.execute(f"create schema if not exists {silver}")
         results: dict[str, Any] = {"dimensions": {}, "facts": {}}
 
         for dim in model["dimensions"]:
-            if dim["type"] == "scd1":
-                n = build_scd1_dimension(con, silver, bronze, dim)
-                results["dimensions"][dim["name"]] = {"type": "scd1", "rows": n}
-            elif dim["type"] == "scd2":
-                total, current = build_scd2_dimension(con, silver, bronze, dim)
-                results["dimensions"][dim["name"]] = {"type": "scd2", "rows": total, "current_rows": current}
-            else:
-                raise NotImplementedError(f"dimension type {dim['type']!r} not implemented")
+            started_at = datetime.now(timezone.utc)
+            try:
+                if dim["type"] == "scd1":
+                    n = build_scd1_dimension(con, silver, bronze, dim)
+                    results["dimensions"][dim["name"]] = {"type": "scd1", "rows": n}
+                elif dim["type"] == "scd2":
+                    total, current = build_scd2_dimension(con, silver, bronze, dim)
+                    n = total
+                    results["dimensions"][dim["name"]] = {"type": "scd2", "rows": total, "current_rows": current}
+                else:
+                    raise NotImplementedError(f"dimension type {dim['type']!r} not implemented")
+            except Exception as exc:  # noqa: BLE001 -- log the failure, then re-raise
+                log_run(con, control, run_id=str(uuid.uuid4()), source_id=dim["name"], phase="silver",
+                        started_at=started_at, ended_at=datetime.now(timezone.utc), status="failed",
+                        error_message=str(exc), files_seen=1, files_accepted=0, files_quarantined=0,
+                        rows_loaded=0, columns_processed=0)
+                raise
+            n_cols = len(_bronze_columns(con, silver, dim["name"]))
+            log_run(con, control, run_id=str(uuid.uuid4()), source_id=dim["name"], phase="silver",
+                    started_at=started_at, ended_at=datetime.now(timezone.utc), status="completed",
+                    error_message=None, files_seen=1, files_accepted=1, files_quarantined=0,
+                    rows_loaded=n, columns_processed=n_cols)
 
         for fact in model["facts"]:
-            n = build_fact(con, silver, bronze, fact)
-            results["facts"][fact["name"]] = {"rows": n}
+            started_at = datetime.now(timezone.utc)
+            try:
+                n = build_fact(con, silver, bronze, fact)
+                results["facts"][fact["name"]] = {"rows": n}
+            except Exception as exc:  # noqa: BLE001
+                log_run(con, control, run_id=str(uuid.uuid4()), source_id=fact["name"], phase="silver",
+                        started_at=started_at, ended_at=datetime.now(timezone.utc), status="failed",
+                        error_message=str(exc), files_seen=1, files_accepted=0, files_quarantined=0,
+                        rows_loaded=0, columns_processed=0)
+                raise
+            n_cols = len(_bronze_columns(con, silver, fact["name"]))
+            log_run(con, control, run_id=str(uuid.uuid4()), source_id=fact["name"], phase="silver",
+                    started_at=started_at, ended_at=datetime.now(timezone.utc), status="completed",
+                    error_message=None, files_seen=1, files_accepted=1, files_quarantined=0,
+                    rows_loaded=n, columns_processed=n_cols)
 
         return results
     finally:

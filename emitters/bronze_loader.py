@@ -479,9 +479,10 @@ def run(source_id: str, target: str = "duckdb") -> dict[str, Any]:
             pass
         else:
             con.execute(
-                f"insert into {control}.run_registry values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [run_id, source_id, "P1", started_at, datetime.now(timezone.utc), status, error_message,
-                 counts["files_seen"], counts["files_accepted"], counts["files_quarantined"], counts["rows_loaded"]],
+                f"insert into {control}.run_registry values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [run_id, source_id, "bronze", started_at, datetime.now(timezone.utc), status, error_message,
+                 counts["files_seen"], counts["files_accepted"], counts["files_quarantined"],
+                 counts["rows_loaded"], len(schema)],
             )
             con.close()
 

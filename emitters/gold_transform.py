@@ -17,10 +17,13 @@ from __future__ import annotations
 
 import argparse
 import pathlib
+import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 import yaml
 
+from emitters.control_plane import ensure_control_schema, log_run
 from emitters.sql_dialect import SqlConnection, connect as sql_connect
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -206,18 +209,39 @@ def build_monthly_performance(con: SqlConnection, gold: str, silver: str) -> int
     return con.execute(f"select count(*) from {gold}.mart_monthly_performance").fetchone()[0]
 
 
+def _build_and_log(con, gold, control, name, builder, *builder_args) -> int:
+    started_at = datetime.now(timezone.utc)
+    try:
+        n = builder(*builder_args)
+    except Exception as exc:  # noqa: BLE001 -- log the failure, then re-raise
+        log_run(con, control, run_id=str(uuid.uuid4()), source_id=name, phase="gold",
+                started_at=started_at, ended_at=datetime.now(timezone.utc), status="failed",
+                error_message=str(exc), files_seen=1, files_accepted=0, files_quarantined=0,
+                rows_loaded=0, columns_processed=0)
+        raise
+    n_cols = len(_table_columns(con, gold, name))
+    log_run(con, control, run_id=str(uuid.uuid4()), source_id=name, phase="gold",
+            started_at=started_at, ended_at=datetime.now(timezone.utc), status="completed",
+            error_message=None, files_seen=1, files_accepted=1, files_quarantined=0,
+            rows_loaded=n, columns_processed=n_cols)
+    return n
+
+
 def run(domain: str, target: str = "duckdb") -> dict[str, int]:
     gold_contract = _load_gold(domain)
     platform = _load_platform(target)
-    gold, silver = platform["storage"]["gold"], platform["storage"]["silver"]
+    gold, silver, control = platform["storage"]["gold"], platform["storage"]["silver"], platform["storage"]["control"]
 
     con = sql_connect(target, platform)
+    ensure_control_schema(con, control)
     try:
         con.execute(f"create schema if not exists {gold}")
         results = {}
         for mart in gold_contract["marts"]:
-            results[mart["name"]] = build_mart(con, gold, silver, mart, gold_contract)
-        results["mart_monthly_performance"] = build_monthly_performance(con, gold, silver)
+            results[mart["name"]] = _build_and_log(
+                con, gold, control, mart["name"], build_mart, con, gold, silver, mart, gold_contract)
+        results["mart_monthly_performance"] = _build_and_log(
+            con, gold, control, "mart_monthly_performance", build_monthly_performance, con, gold, silver)
         return results
     finally:
         con.close()

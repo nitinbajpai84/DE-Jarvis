@@ -53,7 +53,7 @@ create table if not exists {control}.config_data_source_file (
 create table if not exists {control}.run_registry (
     run_id              varchar primary key,
     source_id           varchar,
-    phase                varchar,
+    phase                varchar,   -- 'bronze' | 'silver' | 'gold'
     started_at            timestamp,
     ended_at              timestamp,
     status                varchar,   -- 'completed' | 'failed'
@@ -61,7 +61,8 @@ create table if not exists {control}.run_registry (
     files_seen              integer,
     files_accepted           integer,
     files_quarantined         integer,
-    rows_loaded                 bigint
+    rows_loaded                 bigint,
+    columns_processed            integer
 );
 
 create table if not exists {control}.file_audit (
@@ -121,6 +122,36 @@ def ensure_control_schema(con: SqlConnection, control_schema: str) -> None:
         statement = statement.strip()
         if statement:
             con.execute(statement)
+
+    # Migration for a run_registry created before columns_processed existed: "create table if
+    # not exists" above is a no-op against an already-existing table, so a new column needs its
+    # own path. `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` transpiles to itself on Databricks
+    # (looks valid, isn't -- Databricks SQL doesn't have that clause, confirmed against a real
+    # warehouse, not assumed from sqlglot's output) -- same class of trap as ON CONFLICT.
+    # Check-then-alter is the portable version.
+    try:
+        cur = con.execute(f"select * from {control_schema}.run_registry limit 0")
+        existing_cols = {d[0] for d in cur.description}
+    except Exception:  # noqa: BLE001 -- table genuinely doesn't exist yet on this run; nothing to migrate
+        existing_cols = {"columns_processed"}
+    if "columns_processed" not in existing_cols:
+        con.execute(f"alter table {control_schema}.run_registry add column columns_processed integer")
+
+
+def log_run(
+    con: SqlConnection, control_schema: str, *, run_id: str, source_id: str, phase: str,
+    started_at, ended_at, status: str, error_message: str | None, files_seen: int,
+    files_accepted: int, files_quarantined: int, rows_loaded: int, columns_processed: int,
+) -> None:
+    """One control.run_registry row -- shared by bronze/silver/gold so 'every run writes to
+    run_registry' (CLAUDE.md rule 7) actually holds for all three layers, not just bronze. Used
+    by silver_transform.py and gold_transform.py; bronze_loader.py's own insert predates this
+    helper and works correctly, left as-is rather than churned for a pure refactor."""
+    con.execute(
+        f"insert into {control_schema}.run_registry values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [run_id, source_id, phase, started_at, ended_at, status, error_message,
+         files_seen, files_accepted, files_quarantined, rows_loaded, columns_processed],
+    )
 
 
 def compile_source_registration(
