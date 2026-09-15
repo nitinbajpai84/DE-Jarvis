@@ -11,3 +11,4 @@ dbt_packages/
 *.egg-info/
 dbt/.user.yml
 dbt/profiles.yml
+harness/dashboard.html
