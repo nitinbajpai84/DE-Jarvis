@@ -94,11 +94,17 @@ existing `action='loaded'` row with the same `file_name`; skip if found. Re-veri
 fix with a full clean reload — exact expected row counts, confirmed by direct query (see table
 above), not just absence of an error.
 
+## Databricks parity — confirmed, not assumed
+
+Loaded the same day-2 deltas into Databricks bronze (which only had day-1 data until this
+point), then re-ran `emitters/silver_transform.py --target databricks`. Result matched the
+DuckDB run **exactly**: `dim_customer` 5,188/4,900 current, `dim_agent` 495/460, `dim_policy`
+5,146/4,900, all SCD1 dims and all facts identical row-for-row. Same `SqlConnection` abstraction,
+same SQL, no dialect-specific branch needed for any of this — the sqlglot transpile approach
+(ADR-001) holds for the silver layer too, not just bronze.
+
 ## What this run does not prove
 
 - Multi-table SCD (a change split across two source tables landing in the same batch).
 - Late-arriving fact rows against a not-yet-current dimension member (`late_arriving:
   inferred_member` in the model contract is declared but not yet exercised by a test).
-- Databricks parity for the silver layer specifically — bronze parity was proven earlier
-  (`evidence/decisions/ADR-001-p1-ingestion-approach.md`); silver's cross-platform run is
-  tracked separately.

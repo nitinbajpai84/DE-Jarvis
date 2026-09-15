@@ -13,3 +13,4 @@ dbt/.user.yml
 dbt/profiles.yml
 harness/dashboard.html
 harness/dashboard_*.html
+harness/agent_dashboard.html
