@@ -385,7 +385,7 @@ def api_journey(request: Request, domain: str = pipeline.DEFAULT_DOMAIN, target:
     agents/gates.py, the same registry that decides what interrupts the agent graph."""
     _check_domain(request, domain)
     try:
-        return journey.journey(domain, target)
+        return journey.journey(domain, target, allowed_domains=_user_domains(request))
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

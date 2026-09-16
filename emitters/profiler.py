@@ -107,8 +107,12 @@ def test_connection(connection: dict) -> dict[str, Any]:
                 con.close()
 
         if ctype == "api":
+            # No query params forced onto the caller's endpoint: a real public API (confirmed
+            # against data.gov.sg's own v2 endpoints) can 400 on an unrecognized `?limit=`, so a
+            # generic reachability check has to hit the URL exactly as given, not assume every
+            # API accepts a limit param the way bronze_loader's one hardcoded envelope does.
             import urllib.request
-            req = urllib.request.Request(connection["endpoint"] + "?limit=1",
+            req = urllib.request.Request(connection["endpoint"],
                                           headers={"User-Agent": "Mozilla/5.0 (jarvis-data-platform)"})
             with urllib.request.urlopen(req, timeout=15) as resp:
                 status = resp.status
@@ -202,18 +206,88 @@ def _sample_database(connection: dict, limit: int) -> tuple[list[str], list[list
         con.close()
 
 
+def _find_records(payload: Any, _depth: int = 0) -> list[dict] | None:
+    """Real-world JSON APIs don't share one envelope -- data.gov.sg alone has shipped at least
+    two ({"result":{"records":[...]}}, {"data":{"stations":[...],"readings":[...]}}), neither of
+    which is bronze_loader.py's one hardcoded {"data":{"rows":[...]}} shape (confirmed live: that
+    shape KeyError'd against a real data.gov.sg v2 endpoint). Exploring an unknown source is the
+    whole point of Step 01, so this looks for the first list-of-objects anywhere in the payload
+    -- common envelope keys first (cheap, usually right), then a shallow recursive scan -- rather
+    than assuming a shape nobody has agreed to yet. Depth-capped so a pathological payload can't
+    recurse forever."""
+    if isinstance(payload, list) and payload and isinstance(payload[0], dict):
+        return payload
+    if not isinstance(payload, dict) or _depth > 4:
+        return None
+    for key in ("rows", "records", "results", "items", "data", "result"):
+        v = payload.get(key)
+        if isinstance(v, list) and v and isinstance(v[0], dict):
+            return v
+    for v in payload.values():
+        if isinstance(v, list) and v and isinstance(v[0], dict):
+            return v
+    for v in payload.values():
+        if isinstance(v, dict):
+            found = _find_records(v, _depth + 1)
+            if found:
+                return found
+    return None
+
+
 def _sample_api(connection: dict, limit: int) -> tuple[list[str], list[list[Any]], int | None]:
-    """Same v2 {"data": {"rows": [...]}} envelope bronze_loader.py's _extract_api_batches
-    assumes -- profiling a shape this platform can't ingest yet would be a false promise."""
+    """Fetches the endpoint exactly as configured (no forced query params -- see
+    test_connection's own note) and extracts whatever list of records is actually in the
+    response, rather than requiring one bespoke envelope. This is deliberately broader than what
+    bronze_loader.py can currently ingest (documented there as "does not pretend to be a generic
+    client") -- profiling exists to explore a source BEFORE a contract or an ingestion path
+    exists for it, so a real API this platform can't load yet should still be explorable."""
     import urllib.request
-    url = connection["endpoint"] + f"?limit={int(limit)}"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (jarvis-data-platform)"})
+    req = urllib.request.Request(connection["endpoint"], headers={"User-Agent": "Mozilla/5.0 (jarvis-data-platform)"})
     with urllib.request.urlopen(req, timeout=30) as resp:
         payload = json.loads(resp.read())
-    api_rows = payload["data"]["rows"]
+    api_rows = _find_records(payload)
+    if api_rows is None:
+        raise ValueError(
+            "could not find a list of records anywhere in the response -- this API's shape "
+            "isn't one Jarvis's profiler recognizes yet (checked top-level array, and "
+            "rows/records/results/items/data/result keys, then a shallow recursive scan)"
+        )
     cols = sorted({k for r in api_rows for k in r.keys()})
     rows = [[r.get(c) for c in cols] for r in api_rows[:limit]]
-    return cols, rows, payload.get("data", {}).get("total") or len(api_rows)
+    return cols, rows, len(api_rows)
+
+
+def _extract_document_content(text: str) -> dict[str, Any]:
+    """A real, cheap-tier Gemini call reads one document and reports back a summary and the
+    candidate structured fields it can find -- e.g. an underwriting letter's policy number,
+    decision, and premium. File-metadata-only profiling (path/mime/char count) tells you a
+    document exists, not what's in it; exploring an unstructured source is supposed to answer
+    "what would I even extract a contract around," which needs the content actually read.
+    Best-effort: any failure (no API key, a malformed response, a network error) degrades to an
+    empty result rather than breaking the whole profile -- this is exploratory enrichment, not a
+    load-bearing part of the profile."""
+    try:
+        import json as _json
+        import os
+        from langchain.chat_models import init_chat_model
+
+        prompt = (
+            "Read this document and respond with ONLY a JSON object (no markdown fences, no "
+            "commentary) with exactly two keys: \"summary\" (one sentence describing what kind "
+            "of document this is and what it's about) and \"candidate_fields\" (an object of "
+            "field_name: value for every distinct, extractable piece of structured data you can "
+            "find -- ids, dates, amounts, names, statuses, decisions. Use snake_case keys. If "
+            "nothing extractable is present, use an empty object.\n\nDocument:\n" + text[:8000]
+        )
+        model = init_chat_model("google_genai:gemini-2.5-flash")
+        raw = model.invoke(prompt).content.strip()
+        if raw.startswith("```"):
+            raw = raw.strip("`")
+            raw = raw[raw.index("\n") + 1:] if "\n" in raw else raw
+        parsed = _json.loads(raw)
+        return {"summary": parsed.get("summary", ""), "candidate_fields": parsed.get("candidate_fields", {})}
+    except Exception as exc:  # noqa: BLE001 -- best-effort enrichment, never fails the profile over it
+        return {"summary": None, "candidate_fields": {}, "extraction_error": f"{type(exc).__name__}: {exc}"}
 
 
 def _sample_unstructured(connection: dict, limit: int) -> tuple[list[str], list[list[Any]], int | None]:
@@ -255,6 +329,14 @@ def profile_source(connection: dict, source_id: str, domain: str, sample_limit: 
         "columns": columns, "candidate_keys": candidate_keys,
         "profiled_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
     }
+    if ctype == "unstructured":
+        # file_path is column 0 in _sample_unstructured's header -- read each sampled document's
+        # own content, not just its metadata, so exploring an unstructured source answers "what's
+        # actually in here."
+        report["content_extraction"] = [
+            {"file_path": r[0], **_extract_document_content(pathlib.Path(r[0]).read_text(errors="replace"))}
+            for r in rows
+        ]
     _write_profile(domain, source_id, report)
     return report
 

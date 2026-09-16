@@ -55,11 +55,18 @@ def _source_contracts(domain: str) -> list[str]:
     return sorted(p.name.replace(".source.yaml", "") for p in d.glob("*.source.yaml")) if d.exists() else []
 
 
-def _observed(step_id: str, domain: str, target: str) -> dict[str, Any] | None:
+def _observed(step_id: str, domain: str, target: str, allowed_domains: list[str] | str = "*") -> dict[str, Any] | None:
     """Real state per step, or None where the capability doesn't exist yet to produce any."""
     if step_id == "onboard":
         sources_root = REPO_ROOT / "contracts" / "sources"
         domains = sorted(p.name for p in sources_root.iterdir() if p.is_dir()) if sources_root.exists() else []
+        # A scoped company login only ever sees its own domain here -- the "N domains on this
+        # platform" view is real, but it's an admin fact about the deployment, not something a
+        # customer's own login should imply exists (confirmed live: Star Insurance's Workspace
+        # screen was showing "2 domains: asset_management, insurance", an admin-shaped view
+        # leaking into a tenant-scoped account).
+        if allowed_domains != "*":
+            domains = [d for d in domains if d in allowed_domains]
         return {"domains": domains, "current": domain}
 
     if step_id == "sources":
@@ -126,13 +133,13 @@ def _observed(step_id: str, domain: str, target: str) -> dict[str, Any] | None:
     return None
 
 
-def journey(domain: str, target: str = "duckdb") -> dict[str, Any]:
+def journey(domain: str, target: str = "duckdb", allowed_domains: list[str] | str = "*") -> dict[str, Any]:
     view = journey_view()
     records = _gate_records(domain)
     steps = []
     for step in view["steps"]:
         try:
-            observed = _observed(step["id"], domain, target)
+            observed = _observed(step["id"], domain, target, allowed_domains)
         except Exception as exc:  # noqa: BLE001 -- one unreachable layer must not blank the whole journey
             observed = {"error": str(exc)}
         gates = [{**g, "records": records.get(g["id"], []),

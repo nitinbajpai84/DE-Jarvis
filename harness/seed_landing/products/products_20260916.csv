@@ -1,0 +1,11 @@
+product_id,product_code,product_name,line_of_business,product_family,product_component_type,active_flag
+PROD0014,HEALTH-014,Health Standard (Revised),health,health_family,base,True
+PROD0034,HEALTH-034,Health Plus (Revised),health,health_family,base,True
+PROD0001,AUTO-001,Auto Plus (Revised),auto,auto_family,rider,False
+PROD0012,HOME-012,Home Plus (Revised),home,home_family,base,True
+PROD0030,COMMERCIAL-030,Commercial Standard (Revised),commercial,commercial_family,base,False
+PROD0017,HOME-017,Home Plus (Revised),home,home_family,base,True
+PROD0031,AUTO-031,Auto Standard (Revised),auto,auto_family,base,False
+PROD0023,LIFE-023,Life Premier (Revised),life,life_family,base,True
+PROD0024,HEALTH-024,Health Standard (Revised),health,health_family,base,True
+PROD0043,LIFE-043,Life Plus (Revised),life,life_family,base,True

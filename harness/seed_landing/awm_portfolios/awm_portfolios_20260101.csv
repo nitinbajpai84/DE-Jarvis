@@ -1,0 +1,7 @@
+portfolio_code,portfolio_name,base_currency,portfolio_type
+PF001,Global Growth Fund,USD,mutual_fund
+PF002,Asia Balanced Mandate,SGD,mandate
+PF003,Core Pension Fund,USD,pension
+PF004,Emerging Markets Fund,USD,mutual_fund
+PF005,Fixed Income Mandate,EUR,mandate
+PF006,APAC Equity Fund,SGD,mutual_fund

@@ -25,6 +25,20 @@ if [ -n "${JARVIS_DATA_ROOT:-}" ]; then
   rm -rf /app/contracts
   ln -s "$DATA/contracts" /app/contracts
 
+  # harness/landing/ is gitignored+dockerignored (real per-customer runtime state, not source),
+  # so a fresh volume starts with nothing for Step 01 discovery or Step 03 build to find --
+  # confirmed live: every discovery test_connection against the deployed backend failed with
+  # "no files match" because there was genuinely nothing there. Seed it once from
+  # harness/seed_landing/ (the same historical files the local/demo environment has always
+  # used, deliberately kept out of .gitignore/.dockerignore so they DO ship with the image),
+  # exactly the same "seed once, volume authoritative after that" pattern already used for
+  # contracts/ above -- a real agent run or a real file drop then owns it from here on, and a
+  # re-deploy never overwrites what happened since.
+  if [ ! -d "$DATA/harness_state/landing" ] || [ -z "$(ls -A "$DATA/harness_state/landing" 2>/dev/null)" ]; then
+    mkdir -p "$DATA/harness_state/landing"
+    cp -r /app/harness/seed_landing/. "$DATA/harness_state/landing/"
+  fi
+
   # harness/ mixes source (.py) with state (the duckdb file, checkpoints, logs) -- symlink
   # only the state, leave the source where the image put it.
   ln -sfn "$DATA/harness_state/landing" /app/harness/landing
