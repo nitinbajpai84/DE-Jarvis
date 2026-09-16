@@ -1,0 +1,4 @@
+instrument_code,instrument_name,instrument_type
+US9000000001,Test Security 1,equity
+US9000000002,Test Security 2,equity
+US9000000003,Test Security 3,bond
