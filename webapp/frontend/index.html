@@ -271,6 +271,22 @@
   .issue-row .ikind{font-family:'IBM Plex Mono';font-size:10px;color:var(--critical);text-transform:uppercase;
                     flex:none;width:120px;}
   .issue-row .idetail{color:var(--text-secondary);}
+
+  /* ---------------- test pack (step 04) ---------------- */
+  .tp-layer{margin-bottom:16px;}
+  .tp-layer:last-child{margin-bottom:0;}
+  .tp-layer-head{display:flex;align-items:center;gap:10px;margin-bottom:9px;}
+  .tp-layer-head h4{font-family:'Sora';font-size:13.5px;font-weight:700;text-transform:capitalize;}
+  .tp-layer-count{font-family:'IBM Plex Mono';font-size:11px;color:var(--text-muted);}
+  .tp-case{display:grid;grid-template-columns:56px 1fr;gap:10px;padding:8px 10px;border-radius:8px;
+           font-size:12px;margin-bottom:4px;}
+  .tp-case.pass{background:rgba(63,192,122,.06);}
+  .tp-case.fail{background:rgba(234,91,87,.08);}
+  .tp-case .tst{font-family:'IBM Plex Mono';font-size:10px;font-weight:600;text-transform:uppercase;}
+  .tp-case.pass .tst{color:var(--good);}
+  .tp-case.fail .tst{color:var(--critical);}
+  .tp-case .tdesc{color:var(--text-primary);font-weight:600;font-family:'IBM Plex Mono';font-size:11px;}
+  .tp-case .tdetail{color:var(--text-muted);margin-left:8px;font-weight:400;}
   .footnote{font-size:11.5px;color:var(--text-muted);line-height:1.6;padding-top:6px;}
   .footnote b{color:var(--text-secondary);}
 
@@ -710,13 +726,21 @@ dim_awm_portfolio | scd1"></textarea></label>
 
   else if (s.id === 'validate') {
     body = `<div class="panel">
-      <div class="panel-head"><h3>Quality evidence</h3><span class="note">From <span class="mono">control.dq_results</span> for ${esc(currentDomain)}</span></div>
+      <div class="panel-head"><h3>Quality evidence</h3><span class="note">Historical, from <span class="mono">control.dq_results</span> for ${esc(currentDomain)}</span></div>
       <div class="stats">
-        <div class="stat"><b>${fmtNum(o.dq_checked)}</b><span>DQ checks run</span></div>
+        <div class="stat"><b>${fmtNum(o.dq_checked)}</b><span>DQ checks on record</span></div>
         <div class="stat"><b style="color:${(o.dq_failing||0) ? 'var(--critical)' : 'var(--good)'}">${fmtNum(o.dq_failing)}</b><span>failing</span></div>
-        <div class="stat muted"><b>—</b><span>generated tests</span></div>
         <div class="stat muted"><b>—</b><span>dashboards</span></div>
       </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Per-layer test pack</h3>
+        <span class="note">Bronze / silver / gold — derived fresh from ${esc(currentDomain)}'s own contracts, run on demand</span></div>
+      <div class="conn-actions" style="margin-top:0;">
+        <button class="btn primary" onclick="runTestPackUI()">Run test pack</button>
+      </div>
+      <div id="tpResult" style="margin-top:11px;"></div>
+      <div id="tpLayers"></div>
     </div>`;
   }
 
@@ -1089,6 +1113,41 @@ async function checkArchitectureUI(){
   }
 }
 window.checkArchitectureUI = checkArchitectureUI;
+
+/* ============================== test pack (step 04) ============================== */
+function testPackLayerHtml(layer, cases){
+  if (!cases.length) return '';
+  const failed = cases.filter(c => c.status === 'fail').length;
+  const rows = cases.map(c => `<div class="tp-case ${c.status}">
+    <span class="tst">${c.status === 'pass' ? '✓ pass' : '✕ fail'}</span>
+    <span><span class="tdesc">${esc(c.description)}</span><span class="tdetail">${esc(c.detail)}</span></span>
+  </div>`).join('');
+  return `<div class="tp-layer">
+    <div class="tp-layer-head"><h4>${esc(layer)}</h4>
+      <span class="tp-layer-count">${cases.length} case${cases.length===1?'':'s'}${failed ? `, ${failed} failing` : ''}</span></div>
+    ${rows}
+  </div>`;
+}
+
+async function runTestPackUI(){
+  const resultEl = document.getElementById('tpResult');
+  const layersEl = document.getElementById('tpLayers');
+  resultEl.innerHTML = `<div class="conn-result">Running — re-evaluating quality rules, business checks, and foreign-key integrity against live tables…</div>`;
+  layersEl.innerHTML = '';
+  try {
+    const r = await api(`/api/test-pack?domain=${encodeURIComponent(currentDomain)}&target=${encodeURIComponent(currentTarget)}`);
+    const report = await r.json();
+    if (!r.ok) { resultEl.innerHTML = `<div class="conn-result bad">✕ ${esc(report.detail || 'test pack failed')}</div>`; return; }
+    const totalCases = Object.values(report.summary).reduce((a,s) => a + s.total, 0);
+    resultEl.innerHTML = report.total_failed
+      ? `<div class="conn-result bad">✕ ${report.total_failed} of ${totalCases} case(s) failing — this is exactly what G3 checks</div>`
+      : `<div class="conn-result ok">✓ All ${totalCases} case(s) passed across bronze/silver/gold</div>`;
+    layersEl.innerHTML = ['bronze','silver','gold'].map(l => testPackLayerHtml(l, report.by_layer[l] || [])).join('');
+  } catch (e) {
+    resultEl.innerHTML = `<div class="conn-result bad">✕ ${esc(e.message)}</div>`;
+  }
+}
+window.runTestPackUI = runTestPackUI;
 
 /* ============================== uploads ============================== */
 function wireDropzone(){

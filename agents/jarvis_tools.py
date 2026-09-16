@@ -33,7 +33,8 @@ from langchain_core.tools import tool
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from emitters import architecture as architecture_mod, intake_compiler, intent as intent_mod, profiler  # noqa: E402
+from emitters import architecture as architecture_mod, intake_compiler, intent as intent_mod  # noqa: E402
+from emitters import profiler, test_pack as test_pack_mod  # noqa: E402
 from emitters.control_plane import ensure_control_schema, log_sdlc_stage  # noqa: E402
 from emitters.sql_dialect import connect as sql_connect, resolve_schema  # noqa: E402
 
@@ -585,12 +586,57 @@ def accept_catalogue(workbook_path: str, run_id: str) -> str:
     return _json({"ok": True, "gate": "G1", "domain": domain, "record": str(record), "gap_analysis": gaps})
 
 
+# ---------------------------------------------------------------------------------------
+# Step 04 per-layer testing (agent 5, Test Manager). Ungated -- re-evaluates and reports,
+# writes nothing to contracts/. See emitters/test_pack.py for the real logic: every case is
+# derived from the domain's own contracts (quality_rules, foreign_keys, business_rules), never
+# a hardcoded assumption. gather_validation_pack (below) calls the same function as part of
+# assembling G3's evidence; this tool exists so a case can be inspected on its own, without
+# also re-running the platform regression suite.
+# ---------------------------------------------------------------------------------------
+
+@tool
+def run_test_pack(domain: str, target: str, run_id: str) -> str:
+    """Runs the real per-layer test pack for this domain: bronze (row counts + each source's
+    quality_rules), silver (row counts + each entity's quality_rules + real orphan-FK checks
+    using every fact's own declared foreign_keys), gold (mart row counts + business_rules).
+    Every case traces to something the domain's contracts actually declared. Read-only from
+    contracts/'s point of view -- it re-evaluates DQ/business rules the same way each layer's
+    own build already does, logging fresh results under a dedicated run_id.
+
+    Args:
+        domain: the domain to test
+        target: 'duckdb' or 'databricks'
+        run_id: the sdlc_run id this action belongs to (for stage logging -- separate from the
+            test pack's own internal run_id, which scopes its DQ re-evaluation)
+    """
+    report = test_pack_mod.generate_test_pack(domain, target)
+    _log(target, domain, run_id, "validate", "test-manager",
+         "completed" if not report["total_failed"] else "failed",
+         f"test pack for domain={domain!r}: {report['total_failed']} failing case(s) across "
+         f"{sum(s['total'] for s in report['summary'].values())} total")
+    return _json(report)
+
+
 @tool
 def gather_validation_pack(domain: str, target: str, run_id: str) -> str:
     """Assembles the evidence a human needs at the G3 validation gate, and persists it so the
-    gate tool can read it back instead of trusting a summary: the regression suite result, the
-    data-quality results recorded for this domain, and the live row/table counts per layer.
-    Ungated -- this only reads. Call this before accept_validation.
+    gate tool can read it back instead of trusting a summary. Two distinct signals, kept
+    separate rather than merged into one pass/fail:
+
+    1. platform_regression -- the existing pytest suite (tests/test_pipeline.py). ENGINE-level
+       sanity only: it always exercises the insurance domain regardless of which domain is
+       being validated (its own DOMAIN constant says so). Useful as "is the platform itself
+       still healthy," never as "is THIS domain's data correct" -- those are different
+       questions, and conflating them was a real bug: validating asset_management here used to
+       report whether INSURANCE's suite passed, which says nothing about asset_management.
+    2. test_pack -- emitters/test_pack.py's real per-layer (3A/3B/3C) test pack, generated
+       fresh from THIS domain's own contracts. This is the actual domain-correctness signal,
+       and what accept_validation blocks on.
+
+    Ungated -- this only reads (well: test_pack re-evaluates DQ/business rules, the same
+    re-run-and-log pattern every layer's own build already uses). Call this before
+    accept_validation.
 
     Args:
         domain: the domain being validated
@@ -602,19 +648,9 @@ def gather_validation_pack(domain: str, target: str, run_id: str) -> str:
         [sys.executable, "-m", "pytest", "tests/test_pipeline.py", "-q", f"--target={target}"],
         cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=300,
     )
-    tests_ok = proc.returncode == 0
+    platform_regression_ok = proc.returncode == 0
 
-    con, control = _control_con(target, domain)
-    try:
-        dq = con.execute(
-            f"select rule_type, columns, severity, passed, failed_row_count from {control}.dq_results "
-            f"where domain = ? order by evaluated_at desc limit 50", [domain],
-        ).fetchall()
-    finally:
-        con.close()
-    dq_rows = [{"rule": r[0], "column": r[1], "severity": r[2], "passed": bool(r[3]),
-                "failed_rows": r[4]} for r in dq]
-    dq_failed = [d for d in dq_rows if not d["passed"]]
+    test_pack = test_pack_mod.generate_test_pack(domain, target)
 
     from webapp.backend.pipeline import pipeline_flow
     flow = pipeline_flow(target, domain)
@@ -622,17 +658,20 @@ def gather_validation_pack(domain: str, target: str, run_id: str) -> str:
 
     pack = {
         "domain": domain, "target": target,
-        "tests": {"passed": tests_ok, "output": proc.stdout[-1200:]},
-        "dq": {"checked": len(dq_rows), "failed": len(dq_failed), "failures": dq_failed[:10]},
+        "platform_regression": {"passed": platform_regression_ok, "output": proc.stdout[-1200:],
+                                "note": "engine sanity only -- always exercises insurance, "
+                                        "not domain-specific"},
+        "test_pack": test_pack,
         "layers": layers,
         "gathered_at": datetime.now(timezone.utc).isoformat(),
     }
     GATE_EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
     _evidence_path(run_id, "validation").write_text(json.dumps(pack, indent=2, default=str))
     _log(target, domain, run_id, "validate", "test-manager",
-         "completed" if tests_ok and not dq_failed else "failed",
-         f"validation pack: tests {'passed' if tests_ok else 'FAILED'}, "
-         f"{len(dq_failed)}/{len(dq_rows)} DQ checks failing")
+         "completed" if platform_regression_ok and not test_pack["total_failed"] else "failed",
+         f"validation pack: platform regression {'passed' if platform_regression_ok else 'FAILED'}, "
+         f"test pack {test_pack['total_failed']} case(s) failing "
+         f"({sum(s['total'] for s in test_pack['summary'].values())} total)")
     return _json(pack)
 
 
@@ -640,9 +679,10 @@ def gather_validation_pack(domain: str, target: str, run_id: str) -> str:
 def accept_validation(domain: str, target: str, run_id: str) -> str:
     """G3 GATE -- records the customer's UAT/validation sign-off. Pauses for human approval
     before it runs. Reads back the pack gather_validation_pack persisted for this run and
-    REFUSES if it is missing, or if the regression suite failed, or if any data-quality check
-    is failing -- approval is approval OF evidence, so there has to be passing evidence.
-    Writes evidence/gates/<run>-G3.md on success.
+    REFUSES if it is missing, if the platform regression suite failed (engine-level sanity), or
+    if the domain's own per-layer test pack has any failing case (bronze/silver/gold, including
+    the real orphan-FK checks) -- approval is approval OF evidence, so there has to be passing
+    evidence, and it has to be evidence about THIS domain. Writes evidence/gates/<run>-G3.md.
 
     Args:
         domain: the domain being signed off
@@ -655,18 +695,25 @@ def accept_validation(domain: str, target: str, run_id: str) -> str:
         return _json({"ok": False, "gate": "G3", "refused": True,
                       "reason": "No validation pack for this run -- call gather_validation_pack first."})
     pack = json.loads(path.read_text())
-    if not pack["tests"]["passed"] or pack["dq"]["failed"]:
+    reg_ok = pack["platform_regression"]["passed"]
+    tp = pack["test_pack"]
+    if not reg_ok or tp["total_failed"]:
         _log(target, domain, run_id, "validate", "human+system", "failed",
-             f"G3 refused: tests_passed={pack['tests']['passed']}, dq_failing={pack['dq']['failed']}")
+             f"G3 refused: platform_regression_passed={reg_ok}, test_pack_failing={tp['total_failed']}")
         return _json({"ok": False, "gate": "G3", "refused": True,
                       "reason": "Validation evidence is not clean.",
-                      "tests_passed": pack["tests"]["passed"], "dq_failing": pack["dq"]["failed"]})
+                      "platform_regression_passed": reg_ok, "test_pack_summary": tp["summary"],
+                      "failing_cases": [c for layer in tp["by_layer"].values() for c in layer
+                                       if c["status"] == "fail"]})
     layers = ", ".join(f"{p}: {v['tables']} tables / {v['rows']} rows" for p, v in pack["layers"].items())
+    total_cases = sum(s["total"] for s in tp["summary"].values())
     record = _write_gate_record(
         "G3", "Validation / UAT", run_id, domain,
         approved=[f"Target platform: {target}", f"Layers: {layers}",
-                  f"Data-quality checks: {pack['dq']['checked']} evaluated, 0 failing"],
-        sections=f"## Tests\nRun:      regression suite on {target}\nPassed:   YES\n",
+                  f"Platform regression: passed",
+                  f"Per-layer test pack: {total_cases} case(s) across bronze/silver/gold, 0 failing"],
+        sections=f"## Tests\nRun:      platform regression on {target} + domain test pack "
+                 f"({tp['test_run_id']})\nPassed:   YES\n",
     )
     _log(target, domain, run_id, "validate", "human+system", "completed",
          f"G3 accepted: validation signed off for domain={domain!r}")
@@ -771,5 +818,5 @@ ALL_TOOLS = [test_source_connection, profile_source,
              capture_architecture, check_architecture_consistency,
              compile_intake_preview, write_intake_contracts, run_bronze_source,
              run_silver_domain, run_gold_domain, run_regression_tests,
-             accept_catalogue, gather_validation_pack, accept_validation,
+             accept_catalogue, run_test_pack, gather_validation_pack, accept_validation,
              run_ops_readiness, accept_go_live]

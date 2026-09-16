@@ -34,7 +34,7 @@ if _env_path.exists():
             _k, _v = _line.split("=", 1)
             os.environ.setdefault(_k.strip(), _v.strip())
 
-from webapp.backend import agent_runs, architecture, discovery, intent, journey, pipeline, sdlc, uploads  # noqa: E402
+from webapp.backend import agent_runs, architecture, discovery, intent, journey, pipeline, sdlc, test_pack, uploads  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
 app = FastAPI(title="Jarvis Control Room")
@@ -209,6 +209,16 @@ def api_architecture_check(body: ArchitectureCheckRequest):
     if not result.get("ok", True) and "errors" in result:
         raise HTTPException(status_code=400, detail=result["errors"])
     return result
+
+
+@app.get("/api/test-pack")
+def api_test_pack(domain: str = pipeline.DEFAULT_DOMAIN, target: str = "duckdb"):
+    """Runs the real per-layer (3A/3B/3C) test pack for this domain -- see
+    emitters/test_pack.py. Every case is derived from the domain's own contracts."""
+    try:
+        return test_pack.run(domain, target)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.get("/api/journey")
