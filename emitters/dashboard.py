@@ -264,14 +264,20 @@ def render_dashboard(domain: str, target: str) -> dict[str, Any]:
     try:
         rendered = []
         for tile in dashboard["tiles"]:
-            if tile["type"] == "bar":
-                rendered.append(_render_bar(con, gold, gold_contract, tile))
-            elif tile["type"] == "kpi":
-                rendered.append(_render_kpi(con, gold, gold_contract, tile))
-            elif tile["type"] == "table":
-                rendered.append(_render_table(con, gold, gold_contract, tile))
-            else:
-                rendered.append({**tile, "error": f"unknown tile type {tile['type']!r}"})
+            try:
+                if tile["type"] == "bar":
+                    rendered.append(_render_bar(con, gold, gold_contract, tile))
+                elif tile["type"] == "kpi":
+                    rendered.append(_render_kpi(con, gold, gold_contract, tile))
+                elif tile["type"] == "table":
+                    rendered.append(_render_table(con, gold, gold_contract, tile))
+                else:
+                    rendered.append({**tile, "error": f"unknown tile type {tile['type']!r}"})
+            except Exception as exc:  # noqa: BLE001 -- one tile's real SQL error (e.g. the
+                # gold schema doesn't exist yet on a freshly-deployed instance with no pipeline
+                # run against it) must not blank the whole dashboard; every other tile still
+                # renders, and this one shows the real error, not a fabricated result.
+                rendered.append({**tile, "error": f"{type(exc).__name__}: {exc}"})
         return {**dashboard, "tiles": rendered, "target": target}
     finally:
         con.close()
