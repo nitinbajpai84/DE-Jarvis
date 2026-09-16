@@ -34,7 +34,8 @@ if _env_path.exists():
             _k, _v = _line.split("=", 1)
             os.environ.setdefault(_k.strip(), _v.strip())
 
-from webapp.backend import agent_runs, journey, pipeline, sdlc, uploads  # noqa: E402
+from webapp.backend import agent_runs, discovery, journey, pipeline, sdlc, uploads  # noqa: E402
+from pydantic import BaseModel  # noqa: E402
 
 app = FastAPI(title="Jarvis Control Room")
 
@@ -123,6 +124,39 @@ def api_alerts(target: str = "duckdb", domain: str = pipeline.DEFAULT_DOMAIN):
         return pipeline.recent_alerts(target, domain=domain)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+class ConnectionTestRequest(BaseModel):
+    connection: dict
+
+
+class ProfileRequest(BaseModel):
+    connection: dict
+    source_id: str
+    domain: str
+    sample_limit: int = 500
+
+
+@app.post("/api/discovery/test")
+def api_discovery_test(body: ConnectionTestRequest):
+    """Cheap reachability check for a candidate connection -- no sampling. Same connection
+    shape a compiled source.yaml's connection: block uses."""
+    return discovery.test_connection(body.connection)
+
+
+@app.post("/api/discovery/profile")
+def api_discovery_profile(body: ProfileRequest):
+    """Connects for real and profiles a candidate source: per-column type/null/distinct/
+    candidate-key, persisted to contracts/discovery/<domain>/<source_id>.profile.json."""
+    try:
+        return discovery.profile_source(body.connection, body.source_id, body.domain, body.sample_limit)
+    except Exception as exc:  # noqa: BLE001 -- surface the real connector error, don't swallow it
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/api/discovery")
+def api_discovery_list(domain: str = pipeline.DEFAULT_DOMAIN):
+    return {"domain": domain, "profiles": discovery.list_profiles(domain)}
 
 
 @app.get("/api/journey")

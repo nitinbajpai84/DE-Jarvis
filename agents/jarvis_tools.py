@@ -33,7 +33,7 @@ from langchain_core.tools import tool
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from emitters import intake_compiler  # noqa: E402
+from emitters import intake_compiler, profiler  # noqa: E402
 from emitters.control_plane import ensure_control_schema, log_sdlc_stage  # noqa: E402
 from emitters.sql_dialect import connect as sql_connect, resolve_schema  # noqa: E402
 
@@ -100,6 +100,68 @@ def _log(target: str, domain: str, run_id: str, stage: str, agent: str, status: 
             except Exception:  # noqa: BLE001 -- the log-of-last-resort must never itself raise
                 pass
             return
+
+
+# ---------------------------------------------------------------------------------------
+# Step 01 discovery tools (agent 1, Business Analyst). Both read-only, both ungated -- same
+# reasoning as compile_intake_preview: nothing here writes to contracts/ or lands data, so
+# there is nothing for a human to approve yet. See emitters/profiler.py for the real
+# connect-and-sample logic; these are thin wrappers that also log the stage.
+# ---------------------------------------------------------------------------------------
+
+@tool
+def test_source_connection(connection_json: str, run_id: str, domain: str) -> str:
+    """Cheap reachability check for a candidate source, BEFORE spending time sampling it.
+    connection_json is a JSON object in the exact same shape a compiled source contract's
+    `connection:` block uses -- {"type": "file", "path": "...", ...} for a landing-zone file,
+    {"type": "database", "dialect": "databricks", "table": "catalog.schema.table"} for a live
+    table, {"type": "api", "endpoint": "..."} for a REST source. Returns {ok, detail}.
+
+    Args:
+        connection_json: JSON-encoded connection config (same shape as source.yaml's connection:)
+        run_id: the sdlc_run id this action belongs to
+        domain: the domain this candidate source belongs to (for stage logging)
+    """
+    import json as _json
+    connection = _json.loads(connection_json)
+    result = profiler.test_connection(connection)
+    _log("duckdb", domain, run_id, "discover", "business-analyst",
+         "completed" if result["ok"] else "failed",
+         f"connection test ({connection.get('type')}): {result['detail']}")
+    return _json.dumps(result)
+
+
+@tool
+def profile_source(connection_json: str, source_id: str, domain: str, run_id: str,
+                    sample_limit: int = 500) -> str:
+    """Connects to a candidate source for real and profiles it: per-column inferred type, null
+    rate, distinct count, candidate-key flag, and sample values, plus the total row count where
+    that's cheap to know. This is the raw material for drafting the catalogue at Step 02 -- it
+    does not write to contracts/ or land any data to bronze. Always call test_source_connection
+    first. Persists to contracts/discovery/<domain>/<source_id>.profile.json.
+
+    Args:
+        connection_json: JSON-encoded connection config (same shape as source.yaml's connection:)
+        source_id: a short id for this candidate source, e.g. 'orders' -- becomes its source_id
+            if it's later promoted into the intake workbook
+        domain: the domain this candidate source belongs to
+        run_id: the sdlc_run id this action belongs to
+        sample_limit: rows to sample (default 500) -- profiling reads a sample, never the whole
+            table/file set, so this stays fast against a large live source
+    """
+    import json as _json
+    connection = _json.loads(connection_json)
+    try:
+        report = profiler.profile_source(connection, source_id, domain, sample_limit)
+        keys = ", ".join(report["candidate_keys"]) or "none found"
+        _log("duckdb", domain, run_id, "discover", "business-analyst", "completed",
+             f"profiled {source_id}: {len(report['columns'])} columns, "
+             f"{report['sampled_rows']}/{report['total_rows']} rows sampled, candidate keys: {keys}")
+        return _json.dumps(report)
+    except Exception as exc:  # noqa: BLE001
+        _log("duckdb", domain, run_id, "discover", "business-analyst", "failed",
+             f"profile {source_id} failed: {exc}")
+        return _json.dumps({"ok": False, "error": str(exc)})
 
 
 @tool
@@ -532,7 +594,8 @@ def _json(obj: Any) -> str:
     return json.dumps(obj, default=str)
 
 
-ALL_TOOLS = [compile_intake_preview, write_intake_contracts, run_bronze_source,
+ALL_TOOLS = [test_source_connection, profile_source,
+             compile_intake_preview, write_intake_contracts, run_bronze_source,
              run_silver_domain, run_gold_domain, run_regression_tests,
              accept_catalogue, gather_validation_pack, accept_validation,
              run_ops_readiness, accept_go_live]

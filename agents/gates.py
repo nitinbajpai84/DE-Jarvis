@@ -43,8 +43,11 @@ JOURNEY = [
     {
         "step": 1, "id": "sources", "name": "Connect & explore",
         "tagline": "The BA agent connects to the estate, profiles what it finds, and takes context from the team.",
-        "agents": [1], "capability": "planned",
-        "gap": "No connectors and no profiler yet. Source contracts that already exist are shown read-only.",
+        "agents": [1], "capability": "partial",
+        "gap": "Connectors and a real profiler exist for file, database (Databricks) and API sources -- "
+               "test a connection, sample it, see column types/nulls/candidate keys. What's still missing: "
+               "the agent doesn't yet decide what to connect to on its own, and there's no free-form "
+               "context intake (docs, notes) or conversational BA surface.",
     },
     {
         "step": 2, "id": "catalogue", "name": "Catalogue & intent",
@@ -85,7 +88,8 @@ GATES = [
         "id": "G0", "step": 1, "name": "Sources confirmed",
         "approves": "That the agent found everything, or the team names what it missed.",
         "prep": None, "tool": None, "capability": "planned",
-        "blocked_by": "Step 01 discovery: there is nothing to confirm until the agent can explore sources itself.",
+        "blocked_by": "Discovery (connect + profile) now exists, but nothing yet asks the customer to "
+                       "confirm the inventory is complete -- the gate tool itself hasn't been built.",
     },
     {
         "id": "G1", "step": 2, "name": "Catalogue & intent",

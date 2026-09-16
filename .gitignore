@@ -21,3 +21,4 @@ harness/insights_report.html
 webapp/uploads/
 
 harness/_uv*.log
+contracts/discovery/

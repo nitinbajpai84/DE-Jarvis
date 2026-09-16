@@ -63,9 +63,19 @@ def _observed(step_id: str, domain: str, target: str) -> dict[str, Any] | None:
         return {"domains": domains, "current": domain}
 
     if step_id == "sources":
-        # Read-only inventory of what's already under contract. NOT the same thing as the
-        # discovery this step is meant to do -- flagged as such so the UI can say so.
-        return {"contracted_sources": _source_contracts(domain), "discovered_sources": None}
+        from emitters.profiler import list_profiles
+        profiles = list_profiles(domain)
+        return {
+            "contracted_sources": _source_contracts(domain),
+            "discovered_sources": [p["source_id"] for p in profiles],
+            "discovery_detail": [
+                {"source_id": p["source_id"], "connection_type": p["connection"].get("type"),
+                 "columns": len(p["columns"]), "candidate_keys": p["candidate_keys"],
+                 "sampled_rows": p["sampled_rows"], "total_rows": p["total_rows"],
+                 "profiled_at": p["profiled_at"]}
+                for p in profiles
+            ],
+        }
 
     if step_id == "catalogue":
         model = REPO_ROOT / "contracts" / "models" / f"{domain}.model.yaml"

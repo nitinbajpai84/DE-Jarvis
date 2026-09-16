@@ -211,6 +211,37 @@
   .empty-note{font-size:12px;color:var(--text-muted);padding:8px 2px;}
 
   .srclist{display:flex;flex-wrap:wrap;gap:6px;}
+
+  /* ---------------- discovery (step 01) ---------------- */
+  .conn-form{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:11px;align-items:end;}
+  .conn-form label{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--text-muted);
+                   text-transform:uppercase;letter-spacing:.4px;}
+  .conn-form input,.conn-form select{background:var(--bg-panel-2);border:1px solid var(--border);
+                   color:var(--text-primary);font-size:12.5px;padding:8px 10px;border-radius:8px;font-family:inherit;}
+  .conn-form .chk{flex-direction:row;align-items:center;gap:7px;}
+  .conn-form .chk input{width:auto;}
+  .conn-actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center;}
+  .conn-result{margin-top:11px;padding:9px 12px;border-radius:9px;font-size:12px;font-family:'IBM Plex Mono';}
+  .conn-result.ok{background:rgba(63,192,122,.08);color:var(--good);border:1px solid rgba(63,192,122,.3);}
+  .conn-result.bad{background:rgba(234,91,87,.08);color:var(--critical);border:1px solid rgba(234,91,87,.3);}
+
+  .profile-card{border:1px solid var(--border-soft);border-radius:12px;padding:15px 16px;background:var(--bg-panel-2);margin-bottom:12px;}
+  .profile-card:last-child{margin-bottom:0;}
+  .profile-top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;}
+  .profile-top .pname{font-family:'Sora';font-weight:600;font-size:14px;}
+  .profile-top .ptype{font-family:'IBM Plex Mono';font-size:10px;color:var(--text-muted);
+                      padding:2px 8px;border:1px solid var(--border-soft);border-radius:6px;}
+  .profile-top .prows{margin-left:auto;font-size:11px;color:var(--text-muted);font-family:'IBM Plex Mono';}
+  .coltable{width:100%;border-collapse:collapse;margin-top:11px;font-size:11.5px;}
+  .coltable th{text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);
+              padding:6px 8px;border-bottom:1px solid var(--border-soft);}
+  .coltable td{padding:6px 8px;border-bottom:1px solid var(--border-soft);color:var(--text-secondary);vertical-align:top;}
+  .coltable tr:last-child td{border-bottom:none;}
+  .coltable .cname{color:var(--text-primary);font-weight:600;font-family:'IBM Plex Mono';font-size:11px;}
+  .coltable .ctype{font-family:'IBM Plex Mono';color:var(--accent);}
+  .coltable .key{display:inline-block;margin-left:6px;font-size:9px;padding:1px 6px;border-radius:20px;
+                 background:rgba(240,193,90,.15);color:var(--gold);font-weight:600;}
+  .coltable .samples{font-family:'IBM Plex Mono';font-size:10.5px;color:var(--text-muted);}
   .footnote{font-size:11.5px;color:var(--text-muted);line-height:1.6;padding-top:6px;}
   .footnote b{color:var(--text-secondary);}
 
@@ -408,6 +439,16 @@ function renderRail(){
 function selectStep(n){ currentStep = n; renderRail(); renderScreen(); }
 window.selectStep = selectStep;
 
+async function refreshJourneyDataQuietly(){
+  // Same fetch as reloadJourney(), but only updates the rail's badges -- never touches
+  // #screen, so it's safe to call after an in-place action (profiling a source, a gate
+  // resuming) without discarding whatever the user is mid-way through on the current screen.
+  try {
+    const r = await api(`/api/journey?domain=${encodeURIComponent(currentDomain)}&target=${encodeURIComponent(currentTarget)}`);
+    if (r.ok) { journeyData = await r.json(); renderRail(); }
+  } catch {}
+}
+
 /* ============================== attention bar ============================== */
 function renderAttention(){
   const el = document.getElementById('attention');
@@ -510,15 +551,41 @@ function renderScreen(){
 
   else if (s.id === 'sources') {
     const src = o.contracted_sources || [];
+    const disc = o.discovery_detail || [];
     body = `<div class="panel">
-      <div class="panel-head"><h3>Sources under contract</h3>
-        <span class="note">Read from contracts/sources/${esc(currentDomain)}/ — real, but authored by a human, not discovered</span></div>
+      <div class="panel-head"><h3>Discovery status</h3>
+        <span class="note">contracts/sources/${esc(currentDomain)}/ vs. contracts/discovery/${esc(currentDomain)}/</span></div>
       <div class="stats">
         <div class="stat"><b>${fmtNum(src.length)}</b><span>under contract</span></div>
-        <div class="stat muted"><b>—</b><span>discovered</span></div>
-        <div class="stat muted"><b>—</b><span>profiled</span></div>
+        <div class="stat"><b>${fmtNum(disc.length)}</b><span>profiled</span></div>
+        <div class="stat muted"><b>—</b><span>confirmed (G0)</span></div>
       </div>
-      <div class="srclist" style="margin-top:14px;">${src.map(x=>`<span class="tchip">${esc(x)}</span>`).join('') || '<span class="empty-note">No source contracts for this domain.</span>'}</div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Connect to a source</h3>
+        <span class="note">Real connectors — file, database (Databricks), API. Test first, then sample it.</span></div>
+      <div class="conn-form">
+        <label>Type
+          <select id="connType" onchange="renderConnFields()">
+            <option value="file">File (landing zone)</option>
+            <option value="database">Database (Databricks)</option>
+            <option value="api">API</option>
+            <option value="unstructured">Unstructured files</option>
+          </select>
+        </label>
+        <label>Candidate source id<input id="connSourceId" placeholder="e.g. claims_extract"></label>
+        <label>Sample limit<input id="connSampleLimit" type="number" value="500"></label>
+      </div>
+      <div class="conn-form" id="connFields" style="margin-top:11px;"></div>
+      <div class="conn-actions">
+        <button class="btn ghost" onclick="testConnection()">Test connection</button>
+        <button class="btn primary" onclick="profileConnection()">Profile it</button>
+      </div>
+      <div id="connResult"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Profiled sources</h3><span class="note">Persisted to contracts/discovery/${esc(currentDomain)}/</span></div>
+      <div id="profileList">${disc.length ? '' : '<div class="empty-note">Nothing profiled yet for this domain.</div>'}</div>
     </div>`;
   }
 
@@ -588,6 +655,115 @@ function renderScreen(){
   if (s.id === 'catalogue') { wireDropzone(); loadUploads(); }
   if (s.id === 'build') { refreshFlow(); loadAgentRuns(); }
   if (s.id === 'operate') { refreshAlerts(); }
+  if (s.id === 'sources') { renderConnFields(); loadProfiles(); }
+}
+
+/* ============================== discovery (step 01) ============================== */
+const CONN_FIELD_DEFS = {
+  file: [
+    {id:'connPath', label:'Path (glob under harness/)', ph:'harness/landing/orders/orders_*.csv'},
+    {id:'connDelimiter', label:'Delimiter', ph:',', value:','},
+    {id:'connEncoding', label:'Encoding', ph:'utf-8', value:'utf-8'},
+    {id:'connHeader', label:'Has header row', checkbox:true, value:true},
+  ],
+  database: [
+    {id:'connTable', label:'Table (catalog.schema.table)', ph:'jarvis.insurance_bronze.addresses'},
+  ],
+  api: [
+    {id:'connEndpoint', label:'Endpoint URL', ph:'https://api.example.com/v1/records'},
+  ],
+  unstructured: [
+    {id:'connPath', label:'Path (glob under harness/)', ph:'harness/landing/docs/*.txt'},
+  ],
+};
+
+function renderConnFields(){
+  const type = document.getElementById('connType').value;
+  const host = document.getElementById('connFields');
+  host.innerHTML = CONN_FIELD_DEFS[type].map(f => {
+    if (f.checkbox) return `<label class="chk"><input type="checkbox" id="${f.id}" ${f.value?'checked':''}> ${esc(f.label)}</label>`;
+    return `<label>${esc(f.label)}<input id="${f.id}" placeholder="${esc(f.ph||'')}" value="${esc(f.value||'')}"></label>`;
+  }).join('');
+}
+window.renderConnFields = renderConnFields;
+
+function buildConnection(){
+  const type = document.getElementById('connType').value;
+  const val = id => { const el = document.getElementById(id); return el ? (el.type === 'checkbox' ? el.checked : el.value) : undefined; };
+  if (type === 'file') return {type, path: val('connPath'), format: 'csv', delimiter: val('connDelimiter') || ',',
+                                header: val('connHeader') !== false, encoding: val('connEncoding') || 'utf-8'};
+  if (type === 'database') return {type, dialect: 'databricks', table: val('connTable')};
+  if (type === 'api') return {type, endpoint: val('connEndpoint')};
+  if (type === 'unstructured') return {type, path: val('connPath')};
+}
+
+async function testConnection(){
+  const el = document.getElementById('connResult');
+  el.innerHTML = `<div class="conn-result">Testing…</div>`;
+  try {
+    const r = await api('/api/discovery/test', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({connection: buildConnection()})});
+    const j = await r.json();
+    el.innerHTML = `<div class="conn-result ${j.ok ? 'ok' : 'bad'}">${j.ok ? '✓' : '✕'} ${esc(j.detail)}</div>`;
+  } catch (e) {
+    el.innerHTML = `<div class="conn-result bad">✕ ${esc(e.message)}</div>`;
+  }
+}
+window.testConnection = testConnection;
+
+async function profileConnection(){
+  const el = document.getElementById('connResult');
+  const sourceId = document.getElementById('connSourceId').value.trim();
+  if (!sourceId) { el.innerHTML = `<div class="conn-result bad">Give the candidate source an id first.</div>`; return; }
+  el.innerHTML = `<div class="conn-result">Sampling…</div>`;
+  try {
+    const r = await api('/api/discovery/profile', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({connection: buildConnection(), source_id: sourceId, domain: currentDomain,
+                             sample_limit: parseInt(document.getElementById('connSampleLimit').value, 10) || 500})});
+    const j = await r.json();
+    if (!r.ok) { el.innerHTML = `<div class="conn-result bad">✕ ${esc(j.detail || 'profiling failed')}</div>`; return; }
+    el.innerHTML = `<div class="conn-result ok">✓ Profiled ${esc(sourceId)} — ${j.columns.length} columns, ` +
+                    `${fmtNum(j.sampled_rows)}/${fmtNum(j.total_rows)} rows sampled</div>`;
+    await loadProfiles();
+    await refreshJourneyDataQuietly();   // updates rail badges without rebuilding the screen --
+                                          // a full reloadJourney() here would wipe this success
+                                          // message and the form the user just filled in
+  } catch (e) {
+    el.innerHTML = `<div class="conn-result bad">✕ ${esc(e.message)}</div>`;
+  }
+}
+window.profileConnection = profileConnection;
+
+function profileCard(p){
+  const rows = (p.columns || []).map(c => `<tr>
+    <td class="cname">${esc(c.name)}${c.is_candidate_key ? '<span class="key">key</span>' : ''}</td>
+    <td class="ctype">${esc(c.inferred_type)}</td>
+    <td>${c.null_pct}%</td>
+    <td>${fmtNum(c.distinct_count)}</td>
+    <td class="samples">${(c.sample_values||[]).slice(0,3).map(esc).join(', ')}</td>
+  </tr>`).join('');
+  return `<div class="profile-card">
+    <div class="profile-top">
+      <span class="pname">${esc(p.source_id)}</span>
+      <span class="ptype">${esc(p.connection.type)}</span>
+      <span class="prows">${fmtNum(p.sampled_rows)}/${fmtNum(p.total_rows)} rows · profiled ${timeAgo(p.profiled_at)}</span>
+    </div>
+    <table class="coltable"><thead><tr><th>Column</th><th>Type</th><th>Null%</th><th>Distinct</th><th>Samples</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+  </div>`;
+}
+
+async function loadProfiles(){
+  const host = document.getElementById('profileList');
+  if (!host) return;
+  try {
+    const r = await api(`/api/discovery?domain=${encodeURIComponent(currentDomain)}`);
+    const j = await r.json();
+    host.innerHTML = j.profiles.length ? j.profiles.map(profileCard).join('')
+      : `<div class="empty-note">Nothing profiled yet for this domain.</div>`;
+  } catch (e) {
+    host.innerHTML = `<div class="empty-note">Could not load profiles: ${esc(e.message)}</div>`;
+  }
 }
 
 /* ============================== flow ============================== */
