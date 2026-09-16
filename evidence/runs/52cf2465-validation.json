@@ -1,0 +1,399 @@
+{
+  "domain": "insurance",
+  "target": "duckdb",
+  "platform_regression": {
+    "passed": true,
+    "output": ".........................                                                [100%]\n25 passed in 0.46s\n",
+    "note": "engine sanity only -- always exercises insurance, not domain-specific"
+  },
+  "test_pack": {
+    "domain": "insurance",
+    "target": "duckdb",
+    "test_run_id": "testpack-1594af38b78f",
+    "by_layer": {
+      "bronze": [
+        {
+          "id": "bronze:addresses:rows",
+          "layer": "bronze",
+          "description": "addresses has landed rows",
+          "status": "pass",
+          "detail": "5200 row(s)"
+        },
+        {
+          "id": "dq:addresses:not_null:address_id,party_id,line1",
+          "layer": "bronze",
+          "description": "addresses: not_null(address_id,party_id,line1)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "bronze:agents:rows",
+          "layer": "bronze",
+          "description": "agents has landed rows",
+          "status": "pass",
+          "detail": "510 row(s)"
+        },
+        {
+          "id": "dq:agents:not_null:agent_id,party_id,agent_number",
+          "layer": "bronze",
+          "description": "agents: not_null(agent_id,party_id,agent_number)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "dq:agents:accepted_values:status",
+          "layer": "bronze",
+          "description": "agents: accepted_values(status)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "bronze:claims:rows",
+          "layer": "bronze",
+          "description": "claims has landed rows",
+          "status": "pass",
+          "detail": "4900 row(s)"
+        },
+        {
+          "id": "dq:claims:not_null:claim_id,claim_number,policy_id,customer_id",
+          "layer": "bronze",
+          "description": "claims: not_null(claim_id,claim_number,policy_id,customer_id)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "dq:claims:accepted_values:claim_status",
+          "layer": "bronze",
+          "description": "claims: accepted_values(claim_status)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "dq:claims:range:paid_amount",
+          "layer": "bronze",
+          "description": "claims: range(paid_amount)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "bronze:customers:rows",
+          "layer": "bronze",
+          "description": "customers has landed rows",
+          "status": "pass",
+          "detail": "5320 row(s)"
+        },
+        {
+          "id": "dq:customers:not_null:customer_id,party_id,customer_number",
+          "layer": "bronze",
+          "description": "customers: not_null(customer_id,party_id,customer_number)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "dq:customers:accepted_values:lifecycle_stage",
+          "layer": "bronze",
+          "description": "customers: accepted_values(lifecycle_stage)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "dq:customers:range:engagement_score",
+          "layer": "bronze",
+          "description": "customers: range(engagement_score)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "bronze:parties:rows",
+          "layer": "bronze",
+          "description": "parties has landed rows",
+          "status": "pass",
+          "detail": "5850 row(s)"
+        },
+        {
+          "id": "dq:parties:not_null:party_id,display_name",
+          "layer": "bronze",
+          "description": "parties: not_null(party_id,display_name)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "dq:parties:accepted_values:party_type",
+          "layer": "bronze",
+          "description": "parties: accepted_values(party_type)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "bronze:payments:rows",
+          "layer": "bronze",
+          "description": "payments has landed rows",
+          "status": "pass",
+          "detail": "5000 row(s)"
+        },
+        {
+          "id": "dq:payments:not_null:payment_id,policy_id,customer_id",
+          "layer": "bronze",
+          "description": "payments: not_null(payment_id,policy_id,customer_id)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "dq:payments:accepted_values:payment_status",
+          "layer": "bronze",
+          "description": "payments: accepted_values(payment_status)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "bronze:policies:rows",
+          "layer": "bronze",
+          "description": "policies has landed rows",
+          "status": "pass",
+          "detail": "5320 row(s)"
+        },
+        {
+          "id": "dq:policies:not_null:policy_id,policy_number,customer_id,product_id",
+          "layer": "bronze",
+          "description": "policies: not_null(policy_id,policy_number,customer_id,product_id)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "dq:policies:accepted_values:policy_status",
+          "layer": "bronze",
+          "description": "policies: accepted_values(policy_status)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "dq:policies:range:annual_premium",
+          "layer": "bronze",
+          "description": "policies: range(annual_premium)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "bronze:policy_coverages:rows",
+          "layer": "bronze",
+          "description": "policy_coverages has landed rows",
+          "status": "pass",
+          "detail": "5000 row(s)"
+        },
+        {
+          "id": "dq:policy_coverages:not_null:policy_coverage_id,policy_id,coverage_code",
+          "layer": "bronze",
+          "description": "policy_coverages: not_null(policy_coverage_id,policy_id,coverage_code)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "bronze:premiums:rows",
+          "layer": "bronze",
+          "description": "premiums has landed rows",
+          "status": "pass",
+          "detail": "5000 row(s)"
+        },
+        {
+          "id": "dq:premiums:not_null:premium_id,policy_id",
+          "layer": "bronze",
+          "description": "premiums: not_null(premium_id,policy_id)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "dq:premiums:range:written_premium_amount",
+          "layer": "bronze",
+          "description": "premiums: range(written_premium_amount)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "bronze:products:rows",
+          "layer": "bronze",
+          "description": "products has landed rows",
+          "status": "pass",
+          "detail": "60 row(s)"
+        },
+        {
+          "id": "dq:products:not_null:product_id,product_code",
+          "layer": "bronze",
+          "description": "products: not_null(product_id,product_code)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        }
+      ],
+      "silver": [
+        {
+          "id": "silver:dim_party:rows",
+          "layer": "silver",
+          "description": "dim_party has conformed rows",
+          "status": "pass",
+          "detail": "5500 row(s)"
+        },
+        {
+          "id": "silver:dim_address:rows",
+          "layer": "silver",
+          "description": "dim_address has conformed rows",
+          "status": "pass",
+          "detail": "5000 row(s)"
+        },
+        {
+          "id": "silver:dim_product:rows",
+          "layer": "silver",
+          "description": "dim_product has conformed rows",
+          "status": "pass",
+          "detail": "50 row(s)"
+        },
+        {
+          "id": "silver:dim_customer:rows",
+          "layer": "silver",
+          "description": "dim_customer has conformed rows",
+          "status": "pass",
+          "detail": "5306 row(s)"
+        },
+        {
+          "id": "silver:dim_agent:rows",
+          "layer": "silver",
+          "description": "dim_agent has conformed rows",
+          "status": "pass",
+          "detail": "495 row(s)"
+        },
+        {
+          "id": "silver:dim_policy:rows",
+          "layer": "silver",
+          "description": "dim_policy has conformed rows",
+          "status": "pass",
+          "detail": "5238 row(s)"
+        },
+        {
+          "id": "silver:fact_policy_coverage:rows",
+          "layer": "silver",
+          "description": "fact_policy_coverage has conformed rows",
+          "status": "pass",
+          "detail": "5000 row(s)"
+        },
+        {
+          "id": "fk:fact_policy_coverage:dim_policy",
+          "layer": "silver",
+          "description": "fact_policy_coverage.policy_id -> dim_policy.policy_id",
+          "status": "fail",
+          "detail": "100 row(s) in fact_policy_coverage reference a policy_id value not present in dim_policy"
+        },
+        {
+          "id": "silver:fact_premium:rows",
+          "layer": "silver",
+          "description": "fact_premium has conformed rows",
+          "status": "pass",
+          "detail": "5000 row(s)"
+        },
+        {
+          "id": "fk:fact_premium:dim_policy",
+          "layer": "silver",
+          "description": "fact_premium.policy_id -> dim_policy.policy_id",
+          "status": "fail",
+          "detail": "100 row(s) in fact_premium reference a policy_id value not present in dim_policy"
+        },
+        {
+          "id": "silver:fact_payment:rows",
+          "layer": "silver",
+          "description": "fact_payment has conformed rows",
+          "status": "pass",
+          "detail": "5000 row(s)"
+        },
+        {
+          "id": "fk:fact_payment:dim_policy",
+          "layer": "silver",
+          "description": "fact_payment.policy_id -> dim_policy.policy_id",
+          "status": "fail",
+          "detail": "100 row(s) in fact_payment reference a policy_id value not present in dim_policy"
+        },
+        {
+          "id": "fk:fact_payment:dim_customer",
+          "layer": "silver",
+          "description": "fact_payment.customer_id -> dim_customer.customer_id",
+          "status": "fail",
+          "detail": "88 row(s) in fact_payment reference a customer_id value not present in dim_customer"
+        },
+        {
+          "id": "silver:fact_claim:rows",
+          "layer": "silver",
+          "description": "fact_claim has conformed rows",
+          "status": "pass",
+          "detail": "4900 row(s)"
+        },
+        {
+          "id": "fk:fact_claim:dim_policy",
+          "layer": "silver",
+          "description": "fact_claim.policy_id -> dim_policy.policy_id",
+          "status": "fail",
+          "detail": "100 row(s) in fact_claim reference a policy_id value not present in dim_policy"
+        },
+        {
+          "id": "fk:fact_claim:dim_customer",
+          "layer": "silver",
+          "description": "fact_claim.customer_id -> dim_customer.customer_id",
+          "status": "fail",
+          "detail": "87 row(s) in fact_claim reference a customer_id value not present in dim_customer"
+        }
+      ],
+      "gold": [
+        {
+          "id": "gold:mart_premium_by_product:rows",
+          "layer": "gold",
+          "description": "mart_premium_by_product has rows",
+          "status": "pass",
+          "detail": "36 row(s)"
+        },
+        {
+          "id": "gold:mart_claims_by_status:rows",
+          "layer": "gold",
+          "description": "mart_claims_by_status has rows",
+          "status": "pass",
+          "detail": "30 row(s)"
+        },
+        {
+          "id": "gold:mart_loss_ratio_by_line:rows",
+          "layer": "gold",
+          "description": "mart_loss_ratio_by_line has rows",
+          "status": "pass",
+          "detail": "7 row(s)"
+        }
+      ]
+    },
+    "summary": {
+      "bronze": {
+        "total": 30,
+        "passed": 30,
+        "failed": 0
+      },
+      "silver": {
+        "total": 16,
+        "passed": 10,
+        "failed": 6
+      },
+      "gold": {
+        "total": 3,
+        "passed": 3,
+        "failed": 0
+      }
+    },
+    "total_failed": 6,
+    "generated_at": "2026-09-16T13:09:12.483663+00:00"
+  },
+  "layers": {
+    "bronze": {
+      "tables": 10,
+      "rows": 42160
+    },
+    "silver": {
+      "tables": 10,
+      "rows": 41489
+    },
+    "gold": {
+      "tables": 4,
+      "rows": 118
+    }
+  },
+  "gathered_at": "2026-09-16T13:09:12.611942+00:00"
+}

@@ -738,7 +738,10 @@ dim_awm_portfolio | scd1"></textarea></label>
         <span class="note">Bronze / silver / gold — derived fresh from ${esc(currentDomain)}'s own contracts, run on demand</span></div>
       <div class="conn-actions" style="margin-top:0;">
         <button class="btn primary" onclick="runTestPackUI()">Run test pack</button>
+        <button class="btn ghost" onclick="startValidationRun()">Validate via Agent</button>
       </div>
+      <div class="intent-help">"Run test pack" calls the checker directly. "Validate via Agent" starts a real
+        agent run that calls the same tools itself, then attempts the G3 gate — watch it appear above.</div>
       <div id="tpResult" style="margin-top:11px;"></div>
       <div id="tpLayers"></div>
     </div>`;
@@ -1148,6 +1151,24 @@ async function runTestPackUI(){
   }
 }
 window.runTestPackUI = runTestPackUI;
+
+async function startValidationRun(){
+  const resultEl = document.getElementById('tpResult');
+  resultEl.innerHTML = `<div class="conn-result">Starting a real agent run for ${esc(currentDomain)}/${esc(currentTarget)}…</div>`;
+  try {
+    const fd = new FormData();
+    fd.append('domain', currentDomain);
+    fd.append('target', currentTarget);
+    const r = await api('/api/agent-runs/validate', {method:'POST', body:fd});
+    const j = await r.json();
+    if (!r.ok) { resultEl.innerHTML = `<div class="conn-result bad">✕ ${esc(j.detail || 'could not start run')}</div>`; return; }
+    resultEl.innerHTML = `<div class="conn-result ok">✓ Agent run started (${esc(j.run_id.slice(0,8))}) — it will call run_test_pack, gather_validation_pack, then attempt the G3 gate. Watch the attention bar above, or the Human gate panel below.</div>`;
+    await loadAgentRuns();
+  } catch (e) {
+    resultEl.innerHTML = `<div class="conn-result bad">✕ ${esc(e.message)}</div>`;
+  }
+}
+window.startValidationRun = startValidationRun;
 
 /* ============================== uploads ============================== */
 function wireDropzone(){

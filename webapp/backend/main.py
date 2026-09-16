@@ -284,6 +284,15 @@ def api_agent_runs_start(upload_id: str = Form(...), domain_hint: str = Form("un
     return agent_runs.start_run(record["stored_path"], domain_hint)
 
 
+@app.post("/api/agent-runs/validate")
+def api_agent_runs_start_validation(domain: str = Form(...), target: str = Form("duckdb")):
+    """Starts a real agent run that drives Step 04 validation for a domain that already has
+    approved contracts and real data -- no workbook needed. The PM agent runs the per-layer
+    test pack itself, gathers the evidence pack, and attempts G3 sign-off, which pauses for a
+    human decision here exactly like the intake Freeze gate does."""
+    return agent_runs.start_validation_run(domain, target)
+
+
 @app.post("/api/agent-runs/{run_id}/approve")
 def api_agent_runs_approve(run_id: str):
     try:

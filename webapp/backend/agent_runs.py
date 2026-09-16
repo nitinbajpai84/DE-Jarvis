@@ -169,8 +169,27 @@ def start_run(workbook_path: str, domain_hint: str, started_by: str = "control-r
     thread_id = f"run-{run_id[:8]}"
     log = _log_file_for(run_id)
     proc = subprocess.Popen(
-        [PYTHON, str(RUN_CLI), "start", "--workbook", workbook_path, "--domain-hint", domain_hint,
-         "--run-id", run_id, "--thread-id", thread_id, "--started-by", started_by],
+        [PYTHON, str(RUN_CLI), "start", "--kind", "intake", "--workbook", workbook_path,
+         "--domain-hint", domain_hint, "--run-id", run_id, "--thread-id", thread_id,
+         "--started-by", started_by],
+        cwd=str(REPO_ROOT), stdout=log, stderr=subprocess.STDOUT,
+    )
+    return {"run_id": run_id, "thread_id": thread_id, "pid": proc.pid, "status": "starting",
+           "log_file": str(PROCESS_LOG_DIR / f"{run_id}.log")}
+
+
+def start_validation_run(domain: str, target: str, started_by: str = "control-room") -> dict[str, Any]:
+    """Same background-process pattern as start_run, but drives Step 04 validation for a
+    domain that already has approved contracts and real data -- no workbook, no intake. The PM
+    agent calls run_test_pack -> gather_validation_pack -> accept_validation on its own,
+    reaching the G3 gate for real instead of a script calling the tools directly."""
+    run_id = str(uuid.uuid4())
+    thread_id = f"run-{run_id[:8]}"
+    log = _log_file_for(run_id)
+    proc = subprocess.Popen(
+        [PYTHON, str(RUN_CLI), "start", "--kind", "validate", "--domain-hint", domain,
+         "--target", target, "--run-id", run_id, "--thread-id", thread_id,
+         "--started-by", started_by],
         cwd=str(REPO_ROOT), stdout=log, stderr=subprocess.STDOUT,
     )
     return {"run_id": run_id, "thread_id": thread_id, "pid": proc.pid, "status": "starting",

@@ -56,30 +56,56 @@ def _control(domain_hint: str):
     return con, control
 
 
+_TASKS = {
+    # kind="intake": onboarding a new/updated domain from an uploaded workbook, through G1/G2.
+    "intake": lambda a, run_id: (
+        f"A client has uploaded an intake workbook at '{a.workbook}'. Call "
+        f"compile_intake_preview with workbook_path='{a.workbook}', run_id='{run_id}', "
+        f"domain_hint='{a.domain_hint}'. Report the summary, warnings and open_questions "
+        f"plainly. If it compiled with ok=true and you judge it reasonable to proceed (few or "
+        f"no open_questions), call write_intake_contracts with the same workbook_path and "
+        f"run_id to move it to the Freeze gate. If there are errors or open_questions that need "
+        f"a human's judgement, do NOT call write_intake_contracts -- explain clearly what needs "
+        f"resolving instead, and stop."
+    ),
+    # kind="validate": Step 04 validation for a domain that already has approved contracts and
+    # real bronze/silver/gold data -- no workbook involved. Exercises run_test_pack ->
+    # gather_validation_pack -> accept_validation (G3) as a real agent-driven sequence, not a
+    # direct tool call from a test script.
+    "validate": lambda a, run_id: (
+        f"Run Step 04 validation for domain '{a.domain_hint}' on target '{a.target}'. First "
+        f"call run_test_pack with domain='{a.domain_hint}', target='{a.target}', "
+        f"run_id='{run_id}' and report the per-layer (bronze/silver/gold) results plainly -- "
+        f"how many cases per layer, and the exact detail of anything that failed. Then call "
+        f"gather_validation_pack with the same domain/target/run_id to assemble the full "
+        f"evidence pack. Finally call accept_validation with the same domain/target/run_id to "
+        f"attempt sign-off at the G3 gate -- this will pause for a human decision before it "
+        f"runs, and will REFUSE afterward if the evidence isn't clean, even if approved. Report "
+        f"exactly what happens, including the full refusal reason if it refuses. Do not skip "
+        f"calling accept_validation even if you can already tell from the test pack that there "
+        f"are failures -- the gate's own refusal, re-derived from fresh evidence, is the record "
+        f"that matters, not your own summary of the test pack."
+    ),
+}
+
+
 def cmd_start(args: argparse.Namespace) -> None:
     run_id = args.run_id or str(uuid.uuid4())
     thread_id = args.thread_id or f"run-{run_id[:8]}"
+    kind = args.kind
 
     con, control = _control(args.domain_hint)
     try:
+        workbook_marker = str(args.workbook) if kind == "intake" else f"<{kind}:{args.domain_hint}:{args.target}>"
         start_sdlc_run(con, control, run_id=run_id, domain=args.domain_hint, client="default",
-                       project_code=args.domain_hint, workbook_path=str(args.workbook),
+                       project_code=args.domain_hint, workbook_path=workbook_marker,
                        thread_id=thread_id, started_by=args.started_by)
     finally:
         con.close()
 
     app = build_team(gated=True)
     config = {"configurable": {"thread_id": thread_id}}
-    task = (
-        f"A client has uploaded an intake workbook at '{args.workbook}'. Call "
-        f"compile_intake_preview with workbook_path='{args.workbook}', run_id='{run_id}', "
-        f"domain_hint='{args.domain_hint}'. Report the summary, warnings and open_questions "
-        f"plainly. If it compiled with ok=true and you judge it reasonable to proceed (few or "
-        f"no open_questions), call write_intake_contracts with the same workbook_path and "
-        f"run_id to move it to the Freeze gate. If there are errors or open_questions that need "
-        f"a human's judgement, do NOT call write_intake_contracts -- explain clearly what needs "
-        f"resolving instead, and stop."
-    )
+    task = _TASKS[kind](args, run_id)
 
     try:
         result = app.invoke({"messages": [{"role": "user", "content": task}]}, config=config)
@@ -148,7 +174,9 @@ def main() -> None:
     sub = ap.add_subparsers(dest="command", required=True)
 
     p_start = sub.add_parser("start")
-    p_start.add_argument("--workbook", required=True)
+    p_start.add_argument("--kind", choices=["intake", "validate"], default="intake")
+    p_start.add_argument("--workbook", default=None, help="required for --kind intake")
+    p_start.add_argument("--target", default=None, help="required for --kind validate ('duckdb' or 'databricks')")
     p_start.add_argument("--domain-hint", required=True)
     p_start.add_argument("--run-id", default=None)
     p_start.add_argument("--thread-id", default=None)
@@ -164,6 +192,11 @@ def main() -> None:
     p_resume.set_defaults(func=cmd_resume)
 
     args = ap.parse_args()
+    if args.command == "start":
+        if args.kind == "intake" and not args.workbook:
+            ap.error("--workbook is required for --kind intake")
+        if args.kind == "validate" and not args.target:
+            ap.error("--target is required for --kind validate")
     args.func(args)
 
 
