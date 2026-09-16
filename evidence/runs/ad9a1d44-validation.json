@@ -1,0 +1,140 @@
+{
+  "domain": "asset_management",
+  "target": "duckdb",
+  "platform_regression": {
+    "passed": true,
+    "output": ".........................                                                [100%]\n25 passed in 0.50s\n",
+    "note": "engine sanity only -- always exercises insurance, not domain-specific"
+  },
+  "test_pack": {
+    "domain": "asset_management",
+    "target": "duckdb",
+    "test_run_id": "testpack-862b514b63db",
+    "by_layer": {
+      "bronze": [
+        {
+          "id": "bronze:awm_instruments:rows",
+          "layer": "bronze",
+          "description": "awm_instruments has landed rows",
+          "status": "pass",
+          "detail": "15 row(s)"
+        },
+        {
+          "id": "dq:awm_instruments:regex:instrument_code",
+          "layer": "bronze",
+          "description": "awm_instruments: regex(instrument_code)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "bronze:awm_portfolios:rows",
+          "layer": "bronze",
+          "description": "awm_portfolios has landed rows",
+          "status": "pass",
+          "detail": "6 row(s)"
+        },
+        {
+          "id": "dq:awm_portfolios:not_null:portfolio_code",
+          "layer": "bronze",
+          "description": "awm_portfolios: not_null(portfolio_code)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "dq:awm_portfolios:accepted_values:portfolio_type",
+          "layer": "bronze",
+          "description": "awm_portfolios: accepted_values(portfolio_type)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        },
+        {
+          "id": "bronze:awm_positions:rows",
+          "layer": "bronze",
+          "description": "awm_positions has landed rows",
+          "status": "pass",
+          "detail": "27 row(s)"
+        },
+        {
+          "id": "dq:awm_positions:range:market_value",
+          "layer": "bronze",
+          "description": "awm_positions: range(market_value)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        }
+      ],
+      "silver": [
+        {
+          "id": "silver:dim_awm_portfolio:rows",
+          "layer": "silver",
+          "description": "dim_awm_portfolio has conformed rows",
+          "status": "pass",
+          "detail": "6 row(s)"
+        },
+        {
+          "id": "silver:dim_awm_instrument:rows",
+          "layer": "silver",
+          "description": "dim_awm_instrument has conformed rows",
+          "status": "pass",
+          "detail": "15 row(s)"
+        },
+        {
+          "id": "silver:fact_awm_position:rows",
+          "layer": "silver",
+          "description": "fact_awm_position has conformed rows",
+          "status": "pass",
+          "detail": "27 row(s)"
+        }
+      ],
+      "gold": [
+        {
+          "id": "gold:mart_awm_portfolio_value:rows",
+          "layer": "gold",
+          "description": "mart_awm_portfolio_value has rows",
+          "status": "pass",
+          "detail": "6 row(s)"
+        },
+        {
+          "id": "dq:mart_awm_portfolio_value:new_or_missing_dimension:portfolio_code",
+          "layer": "gold",
+          "description": "mart_awm_portfolio_value: new_or_missing_dimension(portfolio_code)",
+          "status": "pass",
+          "detail": "0 failing rows"
+        }
+      ]
+    },
+    "summary": {
+      "bronze": {
+        "total": 7,
+        "passed": 7,
+        "failed": 0
+      },
+      "silver": {
+        "total": 3,
+        "passed": 3,
+        "failed": 0
+      },
+      "gold": {
+        "total": 2,
+        "passed": 2,
+        "failed": 0
+      }
+    },
+    "total_failed": 0,
+    "generated_at": "2026-09-16T13:34:36.083632+00:00"
+  },
+  "layers": {
+    "bronze": {
+      "tables": 3,
+      "rows": 48
+    },
+    "silver": {
+      "tables": 3,
+      "rows": 48
+    },
+    "gold": {
+      "tables": 1,
+      "rows": 6
+    }
+  },
+  "gathered_at": "2026-09-16T13:34:36.206597+00:00"
+}

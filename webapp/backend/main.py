@@ -34,7 +34,7 @@ if _env_path.exists():
             _k, _v = _line.split("=", 1)
             os.environ.setdefault(_k.strip(), _v.strip())
 
-from webapp.backend import agent_runs, architecture, discovery, intent, journey, pipeline, sdlc, test_pack, uploads  # noqa: E402
+from webapp.backend import agent_runs, architecture, dashboard, discovery, intent, journey, pipeline, sdlc, test_pack, uploads  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
 app = FastAPI(title="Jarvis Control Room")
@@ -219,6 +219,30 @@ def api_test_pack(domain: str = pipeline.DEFAULT_DOMAIN, target: str = "duckdb")
         return test_pack.run(domain, target)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+class DashboardSaveRequest(BaseModel):
+    domain: str
+    name: str
+    tiles: list[dict]
+
+
+@app.get("/api/dashboard")
+def api_dashboard(domain: str = pipeline.DEFAULT_DOMAIN, target: str = "duckdb"):
+    """Renders Step 04's dashboard for this domain against LIVE gold data -- whatever's already
+    saved in the gold contract, or a fresh proposal (mechanically derived from the domain's own
+    metrics/marts) if none exists yet. See emitters/dashboard.py."""
+    try:
+        return dashboard.render(domain, target)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/dashboard")
+def api_dashboard_save(body: DashboardSaveRequest):
+    """Saves an accepted (or edited) proposal into contracts/semantics/<domain>.gold.yaml's
+    dashboards: field -- a field the schema has always had, now actually populated."""
+    return dashboard.save(body.domain, body.name, body.tiles)
 
 
 @app.get("/api/journey")

@@ -1,4 +1,3 @@
-# Contract schema: GOLD / SEMANTIC. Compiled from docs/templates/jarvis_intake_template.xlsx -- do not hand-edit.
 $schema: jarvis/gold/v1
 domain: asset_management
 client: default
@@ -37,4 +36,15 @@ marts:
   - total_market_value
   - holdings_count
   materialisation: table
-dashboards: []
+dashboards:
+- name: Asset Management Overview
+  tiles:
+  - type: bar
+    metric: total_market_value
+    x: portfolio_code
+  - type: bar
+    metric: holdings_count
+    x: portfolio_code
+  - type: table
+    by:
+    - portfolio_code

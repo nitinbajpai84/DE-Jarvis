@@ -287,6 +287,52 @@
   .tp-case.fail .tst{color:var(--critical);}
   .tp-case .tdesc{color:var(--text-primary);font-weight:600;font-family:'IBM Plex Mono';font-size:11px;}
   .tp-case .tdetail{color:var(--text-muted);margin-left:8px;font-weight:400;}
+
+  /* ---------------- dashboard / visualisation (agent 6) ---------------- */
+  :root{
+    /* Dark categorical steps, validated against this app's own chart surface
+       (--bg-panel-2) via the dataviz skill's validator -- all 5 checks pass. Fixed order,
+       never cycled arbitrarily. */
+    --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70;
+    --series-4:#c98500; --series-5:#d55181; --series-6:#008300;
+  }
+  .dash-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;}
+  .dash-badge{font-size:10px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;
+             padding:3px 9px;border-radius:20px;}
+  .dash-badge.proposed{background:rgba(240,193,90,.14);color:var(--gold);}
+  .dash-badge.saved{background:rgba(63,192,122,.13);color:var(--good);}
+  .dash-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;}
+  .dash-tile{background:var(--bg-panel-2);border:1px solid var(--border-soft);border-radius:14px;
+            padding:16px 17px;display:flex;flex-direction:column;gap:4px;}
+  .dash-tile.tile-kpi{justify-content:center;}
+  .dash-tile.tile-table{grid-column:1/-1;}
+  .dash-tile-title{font-family:'Sora';font-size:12.5px;font-weight:700;color:var(--text-primary);}
+  .dash-tile-sub{font-size:10.5px;color:var(--text-muted);margin-bottom:6px;}
+  .dash-tile-error{font-size:11.5px;color:var(--critical);padding:8px 0;}
+  .kpi-value{font-family:'IBM Plex Mono';font-size:32px;font-weight:600;color:var(--text-primary);
+            line-height:1.2;}
+  .kpi-label{font-size:10.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;}
+
+  .barchart{position:relative;}
+  .barchart svg{width:100%;height:auto;overflow:visible;}
+  .bc-bar{cursor:pointer;}
+  .bc-axis-label{font-family:'IBM Plex Mono';font-size:9px;fill:var(--text-muted);}
+  .bc-value-label{font-family:'IBM Plex Mono';font-size:9px;fill:var(--text-secondary);}
+  .bc-legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;}
+  .bc-legend-item{display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--text-secondary);}
+  .bc-legend-swatch{width:9px;height:9px;border-radius:2px;flex:none;}
+  .bc-tooltip{position:fixed;pointer-events:none;background:var(--bg-raised);border:1px solid var(--border);
+             border-radius:8px;padding:7px 10px;font-size:11px;color:var(--text-primary);z-index:200;
+             box-shadow:var(--shadow);display:none;font-family:'IBM Plex Mono';white-space:nowrap;}
+  .bc-tooltip b{color:var(--accent);}
+
+  .dash-table{width:100%;border-collapse:collapse;font-size:12px;}
+  .dash-table th{text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;
+                 color:var(--text-muted);padding:7px 9px;border-bottom:1px solid var(--border-soft);}
+  .dash-table td{padding:7px 9px;border-bottom:1px solid var(--border-soft);color:var(--text-secondary);
+                 font-family:'IBM Plex Mono';font-variant-numeric:tabular-nums;}
+  .dash-table tr:last-child td{border-bottom:none;}
+  .dash-table td:first-child{color:var(--text-primary);font-weight:600;}
   .footnote{font-size:11.5px;color:var(--text-muted);line-height:1.6;padding-top:6px;}
   .footnote b{color:var(--text-secondary);}
 
@@ -744,7 +790,19 @@ dim_awm_portfolio | scd1"></textarea></label>
         agent run that calls the same tools itself, then attempts the G3 gate — watch it appear above.</div>
       <div id="tpResult" style="margin-top:11px;"></div>
       <div id="tpLayers"></div>
-    </div>`;
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Dashboard</h3>
+        <span class="note">Agent 6 — real gold-layer data, either the domain's saved dashboard or a fresh proposal</span></div>
+      <div class="dash-toolbar">
+        <button class="btn ghost" onclick="loadDashboardUI()">Refresh</button>
+        <button class="btn primary" id="dashSaveBtn" style="display:none;" onclick="saveDashboardUI()">Accept &amp; save this proposal</button>
+        <span id="dashBadge"></span>
+      </div>
+      <div id="dashResult"></div>
+      <div id="dashGrid" class="dash-grid"><div class="empty-note">Loading…</div></div>
+    </div>
+    <div class="bc-tooltip" id="bcTooltip"></div>`;
   }
 
   else if (s.id === 'operate') {
@@ -771,6 +829,7 @@ dim_awm_portfolio | scd1"></textarea></label>
   if (s.id === 'build') { refreshFlow(); loadAgentRuns(); }
   if (s.id === 'operate') { refreshAlerts(); }
   if (s.id === 'sources') { renderConnFields(); loadProfiles(); }
+  if (s.id === 'validate') { loadDashboardUI(); }
 }
 
 /* ============================== discovery (step 01) ============================== */
@@ -1169,6 +1228,157 @@ async function startValidationRun(){
   }
 }
 window.startValidationRun = startValidationRun;
+
+/* ============================== dashboard (step 04, agent 6) ============================== */
+const SERIES_COLORS = ['var(--series-1)','var(--series-2)','var(--series-3)','var(--series-4)','var(--series-5)','var(--series-6)'];
+
+function fmtMetric(value, format){
+  if (value === null || value === undefined) return '—';
+  if (format === 'currency_usd') return '$' + Number(value).toLocaleString(undefined, {maximumFractionDigits:0});
+  if (format === 'percent') return (Number(value) * 100).toFixed(1) + '%';
+  if (format === 'integer') return Math.round(Number(value)).toLocaleString();
+  return typeof value === 'number' ? value.toLocaleString(undefined, {maximumFractionDigits:2}) : String(value);
+}
+
+function showBcTooltip(evt, html){
+  const tip = document.getElementById('bcTooltip');
+  tip.innerHTML = html;
+  tip.style.display = 'block';
+  tip.style.left = (evt.clientX + 14) + 'px';
+  tip.style.top = (evt.clientY - 10) + 'px';
+}
+function hideBcTooltip(){ document.getElementById('bcTooltip').style.display = 'none'; }
+window.showBcTooltip = showBcTooltip;
+window.hideBcTooltip = hideBcTooltip;
+
+function renderBarChart(tile){
+  const data = tile.data || [];
+  if (!data.length) return `<div class="empty-note">No data.</div>`;
+  const seriesVals = [...new Set(data.map(d => d.series).filter(v => v !== null && v !== undefined))];
+  const xVals = [...new Set(data.map(d => d.x === null ? '(unmapped)' : d.x))];
+  const byX = {};
+  data.forEach(d => {
+    const xk = d.x === null ? '(unmapped)' : d.x;
+    (byX[xk] = byX[xk] || {})[d.series ?? '_'] = d.value;
+  });
+  const seriesKeys = seriesVals.length ? seriesVals : ['_'];
+  const maxVal = Math.max(1, ...data.map(d => d.value || 0));
+
+  const W = 640, H = 220, padL = 4, padB = 26, padT = 8, padR = 4;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const groupW = plotW / xVals.length;
+  const barGap = 3, groupPad = 10;
+  const barW = Math.max(4, (groupW - groupPad * 2 - barGap * (seriesKeys.length - 1)) / seriesKeys.length);
+
+  let bars = '';
+  xVals.forEach((xk, gi) => {
+    const gx = padL + gi * groupW + groupPad;
+    seriesKeys.forEach((sk, si) => {
+      const val = (byX[xk] || {})[sk];
+      if (val === undefined) return;
+      const h = Math.max(1, (val / maxVal) * plotH);
+      const bx = gx + si * (barW + barGap);
+      const by = padT + plotH - h;
+      const color = seriesVals.length ? SERIES_COLORS[si % SERIES_COLORS.length] : 'var(--accent)';
+      const label = esc(String(xk)) + (sk !== '_' ? ' · ' + esc(String(sk)) : '') + '<br><b>' + esc(fmtMetric(val, tile.format)) + '</b>';
+      bars += `<rect class="bc-bar" x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${color}"
+        onmousemove="showBcTooltip(event, '${label.replace(/'/g, "\\'")}')" onmouseleave="hideBcTooltip()"></rect>`;
+    });
+    const lx = padL + gi * groupW + groupW / 2;
+    bars += `<text class="bc-axis-label" x="${lx.toFixed(1)}" y="${H - 8}" text-anchor="middle">${esc(String(xk)).slice(0,10)}</text>`;
+  });
+  const baseline = `<line x1="${padL}" y1="${padT+plotH}" x2="${W-padR}" y2="${padT+plotH}" stroke="var(--border)" stroke-width="1"/>`;
+  const legend = seriesVals.length ? `<div class="bc-legend">${seriesVals.map((s,i) =>
+    `<div class="bc-legend-item"><span class="bc-legend-swatch" style="background:${SERIES_COLORS[i % SERIES_COLORS.length]}"></span>${esc(String(s))}</div>`).join('')}</div>` : '';
+  return `<div class="barchart"><svg viewBox="0 0 ${W} ${H}">${baseline}${bars}</svg></div>${legend}`;
+}
+
+function renderKpi(tile){
+  return `<div class="kpi-value">${esc(fmtMetric(tile.value, tile.format))}</div><div class="kpi-label">${esc(tile.metric)}</div>`;
+}
+
+function renderDashTable(tile){
+  const cols = tile.columns || [];
+  const rows = tile.rows || [];
+  const formats = tile.formats || [];
+  if (!rows.length) return `<div class="empty-note">No data.</div>`;
+  const head = cols.map(c => `<th>${esc(c)}</th>`).join('');
+  const body = rows.map(r => `<tr>${r.map((v,i) => `<td>${esc(v===null?'(unmapped)':(typeof v==='number'?fmtMetric(v, formats[i]):v))}</td>`).join('')}</tr>`).join('');
+  return `<table class="dash-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function dashTileHtml(tile){
+  const title = tile.metric ? tile.metric.replace(/_/g,' ') : (tile.mart || 'table').replace(/_/g,' ');
+  const sizeClass = tile.type === 'table' ? 'tile-table' : (tile.type === 'kpi' ? 'tile-kpi' : '');
+  if (tile.error) {
+    return `<div class="dash-tile ${sizeClass}"><div class="dash-tile-title">${esc(title)}</div>
+      <div class="dash-tile-error">✕ ${esc(tile.error)}</div></div>`;
+  }
+  let body = '';
+  if (tile.type === 'bar') body = renderBarChart(tile);
+  else if (tile.type === 'kpi') body = renderKpi(tile);
+  else if (tile.type === 'table') body = renderDashTable(tile);
+  else body = `<div class="dash-tile-error">Unknown tile type ${esc(tile.type)}</div>`;
+  const sub = tile.mart ? `<div class="dash-tile-sub">${esc(tile.mart)}</div>` : '';
+  return `<div class="dash-tile ${sizeClass}">${tile.type!=='kpi'?`<div class="dash-tile-title">${esc(title)}</div>${sub}`:''}${body}</div>`;
+}
+
+let lastDashboard = null;
+
+async function fetchAndRenderDashboard(clearMessage){
+  // Shared by a plain refresh (clears #dashResult -- nothing to preserve) and post-save
+  // (does NOT clear it -- the save's own success message would otherwise be wiped the instant
+  // it's shown, the same bug class already fixed once for profileConnection()/reloadJourney()
+  // in Phase G. #dashResult is only ever touched here for "skipped" notes or errors.
+  const resultEl = document.getElementById('dashResult');
+  const gridEl = document.getElementById('dashGrid');
+  const badgeEl = document.getElementById('dashBadge');
+  const saveBtn = document.getElementById('dashSaveBtn');
+  if (clearMessage) resultEl.innerHTML = '';
+  gridEl.innerHTML = `<div class="empty-note">Loading…</div>`;
+  try {
+    const r = await api(`/api/dashboard?domain=${encodeURIComponent(currentDomain)}&target=${encodeURIComponent(currentTarget)}`);
+    const d = await r.json();
+    if (!r.ok || d.ok === false) { gridEl.innerHTML = `<div class="empty-note">Could not load dashboard: ${esc(d.detail || d.reason || 'error')}</div>`; return; }
+    lastDashboard = d;
+    badgeEl.innerHTML = d.proposed
+      ? `<span class="dash-badge proposed">Proposed — not yet saved</span>`
+      : `<span class="dash-badge saved">Saved to contract</span>`;
+    saveBtn.style.display = d.proposed ? '' : 'none';
+    if (d.skipped && d.skipped.length) {
+      resultEl.innerHTML = `<div class="intent-help">Skipped: ${d.skipped.map(esc).join('; ')}</div>`;
+    }
+    gridEl.innerHTML = d.tiles.map(dashTileHtml).join('') || `<div class="empty-note">No tiles.</div>`;
+  } catch (e) {
+    gridEl.innerHTML = `<div class="empty-note">Could not load dashboard: ${esc(e.message)}</div>`;
+  }
+}
+
+function loadDashboardUI(){ return fetchAndRenderDashboard(true); }
+window.loadDashboardUI = loadDashboardUI;
+
+async function saveDashboardUI(){
+  if (!lastDashboard) return;
+  const resultEl = document.getElementById('dashResult');
+  resultEl.innerHTML = `<div class="conn-result">Saving…</div>`;
+  try {
+    // Save the tile SPEC (not the rendered data/values) -- strip render-only fields before
+    // writing back to the contract, so the saved dashboard stays a spec, not a data snapshot.
+    const specTiles = lastDashboard.tiles.map(t => {
+      const {data, value, rows, columns, formats, error, mart, format, ...spec} = t;
+      return spec;
+    });
+    const r = await api('/api/dashboard', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({domain: currentDomain, name: lastDashboard.name, tiles: specTiles})});
+    const j = await r.json();
+    if (!r.ok || !j.ok) { resultEl.innerHTML = `<div class="conn-result bad">✕ ${esc(j.reason || j.detail || 'save failed')}</div>`; return; }
+    resultEl.innerHTML = `<div class="conn-result ok">✓ Saved to contracts/semantics/${esc(currentDomain)}.gold.yaml</div>`;
+    await fetchAndRenderDashboard(false);
+  } catch (e) {
+    resultEl.innerHTML = `<div class="conn-result bad">✕ ${esc(e.message)}</div>`;
+  }
+}
+window.saveDashboardUI = saveDashboardUI;
 
 /* ============================== uploads ============================== */
 function wireDropzone(){

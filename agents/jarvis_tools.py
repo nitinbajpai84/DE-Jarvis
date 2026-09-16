@@ -33,8 +33,8 @@ from langchain_core.tools import tool
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from emitters import architecture as architecture_mod, intake_compiler, intent as intent_mod  # noqa: E402
-from emitters import profiler, test_pack as test_pack_mod  # noqa: E402
+from emitters import architecture as architecture_mod, dashboard as dashboard_mod, intake_compiler  # noqa: E402
+from emitters import intent as intent_mod, profiler, test_pack as test_pack_mod  # noqa: E402
 from emitters.control_plane import ensure_control_schema, log_sdlc_stage  # noqa: E402
 from emitters.sql_dialect import connect as sql_connect, resolve_schema  # noqa: E402
 
@@ -720,6 +720,58 @@ def accept_validation(domain: str, target: str, run_id: str) -> str:
     return _json({"ok": True, "gate": "G3", "record": str(record)})
 
 
+# ---------------------------------------------------------------------------------------
+# Step 04 visualisation (agent 6). Both ungated -- neither writes to contracts/ on its own;
+# saving a proposal is a separate explicit action (save_dashboard). See emitters/dashboard.py.
+# ---------------------------------------------------------------------------------------
+
+@tool
+def render_dashboard_tool(domain: str, target: str, run_id: str) -> str:
+    """Renders Step 04's dashboard for this domain against LIVE gold-layer data: whatever's
+    already saved in the gold contract's dashboards: field, or a fresh proposal (mechanically
+    derived from the domain's own declared metrics and marts -- never invented) if none exists
+    yet. Report which tiles resolved and which carry an error (e.g. a ratio metric with no safe
+    single total) plainly -- do not paper over a tile's error field.
+
+    Args:
+        domain: the domain to visualise
+        target: 'duckdb' or 'databricks'
+        run_id: the sdlc_run id this action belongs to
+    """
+    report = dashboard_mod.render_dashboard(domain, target)
+    errors = [t.get("error") for t in report.get("tiles", []) if t.get("error")]
+    _log(target, domain, run_id, "operate", "visualisation",
+         "completed" if not errors else "failed",
+         f"dashboard for domain={domain!r}: {len(report.get('tiles', []))} tile(s), "
+         f"{'proposed' if report.get('proposed') else 'saved'}, {len(errors)} tile error(s)")
+    return _json(report)
+
+
+@tool
+def save_dashboard_tool(domain: str, name: str, tiles_json: str, run_id: str) -> str:
+    """Saves an accepted (or edited) dashboard proposal into
+    contracts/semantics/<domain>.gold.yaml's dashboards: field -- a field the schema has always
+    had, now actually populated. tiles_json is a JSON array of tile specs in the same shape
+    render_dashboard_tool returns (type/metric/x/series/by/mart), WITHOUT the render-only
+    fields (data/value/rows/columns/error) -- pass the proposal's tiles as-is if accepting it
+    unedited.
+
+    Args:
+        domain: the domain this dashboard belongs to
+        name: the dashboard's display name
+        tiles_json: JSON-encoded list of tile specs
+        run_id: the sdlc_run id this action belongs to
+    """
+    import json as _json_mod
+    tiles = _json_mod.loads(tiles_json)
+    result = dashboard_mod.save_dashboard(domain, name, tiles)
+    _log("duckdb", domain, run_id, "operate", "visualisation",
+         "completed" if result.get("ok") else "failed",
+         f"dashboard saved for domain={domain!r}" if result.get("ok") else
+         f"dashboard save failed for domain={domain!r}: {result.get('reason')}")
+    return _json(result)
+
+
 @tool
 def run_ops_readiness(domain: str, target: str, run_id: str) -> str:
     """Ops readiness check for the G4 gate: runs the WHOLE pipeline end to end for this domain
@@ -819,4 +871,5 @@ ALL_TOOLS = [test_source_connection, profile_source,
              compile_intake_preview, write_intake_contracts, run_bronze_source,
              run_silver_domain, run_gold_domain, run_regression_tests,
              accept_catalogue, run_test_pack, gather_validation_pack, accept_validation,
+             render_dashboard_tool, save_dashboard_tool,
              run_ops_readiness, accept_go_live]

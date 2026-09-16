@@ -68,8 +68,10 @@ JOURNEY = [
         "step": 4, "id": "validate", "name": "Test & visualise",
         "tagline": "Tests per layer, then end-to-end against the intent that was signed.",
         "agents": [5, 6], "capability": "partial",
-        "gap": "The regression pack is real but hand-written; per-layer generation and the visualisation "
-               "agent do not exist.",
+        "gap": "Per-layer test generation (3A/3B/3C), real orphan-FK checking, and a live-data "
+               "visualisation agent are all real and G3-enforced. What's still missing: no SIT "
+               "check against the intent signed at G1, and the visualisation agent proposes a "
+               "dashboard from declared metrics/marts but doesn't yet draft it conversationally.",
     },
     {
         "step": 5, "id": "operate", "name": "Operations",
