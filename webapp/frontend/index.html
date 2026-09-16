@@ -270,6 +270,13 @@
   .intent-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
   @media (max-width:640px){.intent-row{grid-template-columns:1fr;}}
   .intent-help{font-size:10.5px;color:var(--text-muted);margin-top:-2px;}
+  .intent-tabs{display:flex;flex-wrap:wrap;gap:8px;}
+  .intent-tab{display:flex;align-items:center;gap:7px;padding:7px 12px;border-radius:20px;
+             background:var(--bg-panel-2);border:1px solid var(--border);cursor:pointer;
+             font-size:12px;color:var(--text-secondary);}
+  .intent-tab:hover{border-color:var(--accent);}
+  .intent-tab.active{background:rgba(47,224,198,.1);border-color:var(--accent);color:var(--text-primary);font-weight:600;}
+  .intent-tab .gap-dot{width:6px;height:6px;border-radius:50%;background:var(--critical);}
   .gap-row{display:flex;gap:10px;align-items:baseline;padding:8px 10px;border-radius:8px;font-size:12px;margin-bottom:6px;}
   .gap-row.resolved{background:rgba(63,192,122,.06);}
   .gap-row.open{background:rgba(234,91,87,.07);}
@@ -762,9 +769,18 @@ function renderScreen(){
       </div>
     </div>
     <div class="panel">
-      <div class="panel-head"><h3>Intent</h3>
-        <span class="note">What this platform is actually for — captured once per domain, checked at G1</span></div>
+      <div class="panel-head"><h3>Intents</h3>
+        <span class="note">One domain can serve more than one application — a claims dashboard AND a regulatory extract, each with its own reports and SLA</span></div>
+      <div id="intentTabs" class="intent-tabs"><div class="empty-note">Loading…</div></div>
+      <div class="conn-actions" style="margin-top:0;">
+        <button class="btn ghost" onclick="newIntentUI()">+ New intent</button>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3 id="intentFormTitle">Intent</h3>
+        <span class="note">What this application is actually for — checked at G1</span></div>
       <div class="intent-form">
+        <label>Name<input id="intentName" placeholder="e.g. Claims Reporting, Regulatory AUM Extract — leave blank for the domain's primary intent"></label>
         <label>Business outcome<textarea id="intentOutcome" placeholder="Why this platform — the business problem it solves"></textarea></label>
         <label>Definition of done<textarea id="intentDoD" placeholder="What 'done' measurably looks like"></textarea></label>
         <div class="intent-row">
@@ -779,8 +795,9 @@ active portfolio | has an open position as of the reporting date | investments t
         <div class="intent-help">The same term defined twice with different wording is flagged as an open conflict at G1.</div>
       </div>
       <div class="conn-actions">
-        <button class="btn primary" onclick="saveIntent()">Save intent</button>
+        <button class="btn primary" onclick="saveIntent()">Save this intent</button>
         <button class="btn ghost" onclick="runGapAnalysisUI()">Run gap analysis</button>
+        <button class="btn ghost" id="deleteIntentBtn" style="display:none;" onclick="deleteIntentUI()">Delete this intent</button>
       </div>
       <div id="intentResult"></div>
     </div>
@@ -813,19 +830,17 @@ dim_awm_portfolio | scd1"></textarea></label>
       <div id="archResult"></div>
       <div id="archIssues" style="margin-top:11px;"></div>
     </div>
-    ${currentUserDomains === '*' ? `<div class="panel">
+    <div class="panel">
       <div class="panel-head"><h3>Contract intake</h3>
         <span class="note">Runs the real compiler in preview — nothing writes until a gate is approved</span></div>
       <div class="dropzone" id="dropzone">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 15V4M12 4L7 9M12 4l5 5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3" stroke-linecap="round"/></svg>
         <div class="dz-title">Drop the Jarvis intake workbook, or click to browse</div>
-        <div class="dz-sub">One workbook — sources, silver model and gold model.</div>
+        <div class="dz-sub">One workbook — sources, silver model and gold model.
+          ${currentUserDomains === '*' ? '' : `Your account can only freeze a workbook that declares the ${esc(currentDomain)} domain — adding a new domain from scratch needs an admin account.`}</div>
       </div>
       <div id="uploadList" style="margin-top:8px;"></div>
-    </div>` : `<div class="panel">
-      <div class="panel-head"><h3>Contract intake</h3></div>
-      <div class="empty-note">Onboarding a new domain is an admin action — sign in with an admin account to upload an intake workbook.</div>
-    </div>`}`;
+    </div>`;
   }
 
   else if (s.id === 'build') {
@@ -903,7 +918,7 @@ dim_awm_portfolio | scd1"></textarea></label>
      that number does not exist yet.</div>`;
 
   if (s.id === 'catalogue') {
-    if (currentUserDomains === '*') { wireDropzone(); loadUploads(); }
+    wireDropzone(); loadUploads();
     loadIntentForm(); loadArchitectureForm();
     if (o.intent_captured) runGapAnalysisUI();
   }
@@ -1226,11 +1241,53 @@ function formatPipeLines(items, fields){
   return (items || []).map(it => fields.map(f => Array.isArray(it[f]) ? it[f].join(', ') : (it[f]||'')).join(' | ')).join('\n');
 }
 
-async function loadIntentForm(){
+let currentIntentId = null;   // null = editing/creating the domain's primary (unnamed) intent
+
+async function loadIntentsListUI(){
+  const host = document.getElementById('intentTabs'); if (!host) return;
   try {
-    const r = await api(`/api/intent?domain=${encodeURIComponent(currentDomain)}`);
+    const r = await api(`/api/intents?domain=${encodeURIComponent(currentDomain)}`);
+    const j = await r.json();
+    if (!j.intents.length) {
+      host.innerHTML = `<div class="empty-note">No intents captured yet for ${esc(currentDomain)} — fill in the form below to add the first one.</div>`;
+      return;
+    }
+    host.innerHTML = j.intents.map(it => {
+      const id = it.intent_id;
+      const active = (currentIntentId === id) || (currentIntentId === null && id === 'primary' && !j.intents.some(x => x.intent_id === currentIntentId));
+      return `<div class="intent-tab${active ? ' active' : ''}" onclick="loadIntentForm('${esc(id)}')">${esc(it.name || id)}</div>`;
+    }).join('');
+  } catch (e) {
+    host.innerHTML = `<div class="empty-note">Could not load intents: ${esc(e.message)}</div>`;
+  }
+}
+window.loadIntentsListUI = loadIntentsListUI;
+
+function newIntentUI(){
+  currentIntentId = '__new__';
+  document.getElementById('intentFormTitle').textContent = 'New intent';
+  ['intentName','intentOutcome','intentDoD','intentFreshness','intentAvailability','intentReports','intentDefinitions']
+    .forEach(id => document.getElementById(id).value = '');
+  document.getElementById('deleteIntentBtn').style.display = 'none';
+  document.getElementById('intentResult').innerHTML = '';
+  loadIntentsListUI();
+}
+window.newIntentUI = newIntentUI;
+
+async function loadIntentForm(intentId){
+  // intentId omitted (initial page load) -> the domain's first/primary intent, same behavior
+  // this screen has always had. An explicit id (clicking a tab) loads exactly that one.
+  currentIntentId = intentId ?? null;
+  try {
+    const url = intentId
+      ? `/api/intent?domain=${encodeURIComponent(currentDomain)}&intent_id=${encodeURIComponent(intentId)}`
+      : `/api/intent?domain=${encodeURIComponent(currentDomain)}`;
+    const r = await api(url);
     const j = await r.json();
     const it = j.intent;
+    if (it) currentIntentId = it.intent_id;   // resolve the "no id given -> first intent" case to its real id
+    document.getElementById('intentFormTitle').textContent = it ? (it.name || 'Intent') : 'Intent';
+    document.getElementById('intentName').value = it ? (it.name || '') : '';
     document.getElementById('intentOutcome').value = it ? it.business_outcome || '' : '';
     document.getElementById('intentDoD').value = it ? it.definition_of_done || '' : '';
     document.getElementById('intentFreshness').value = it && it.sla ? it.sla.freshness || '' : '';
@@ -1239,16 +1296,20 @@ async function loadIntentForm(){
       (it.reports||[]).map(r => ({...r, required_data_points: r.required_data_points})),
       ['name','description','required_data_points']) : '';
     document.getElementById('intentDefinitions').value = it ? formatPipeLines(it.definitions, ['term','definition','source']) : '';
+    document.getElementById('deleteIntentBtn').style.display = it ? 'inline-flex' : 'none';
+    await loadIntentsListUI();
   } catch (e) {
     document.getElementById('intentResult').innerHTML = `<div class="conn-result bad">Could not load intent: ${esc(e.message)}</div>`;
   }
 }
+window.loadIntentForm = loadIntentForm;
 
 function buildIntentPayload(){
   const reports = parsePipeLines(document.getElementById('intentReports').value, ['name','description','required_data_points'])
     .map(r => ({...r, required_data_points: (r.required_data_points||'').split(',').map(x=>x.trim()).filter(Boolean)}));
   const definitions = parsePipeLines(document.getElementById('intentDefinitions').value, ['term','definition','source']);
   return {
+    name: document.getElementById('intentName').value.trim(),
     business_outcome: document.getElementById('intentOutcome').value.trim(),
     definition_of_done: document.getElementById('intentDoD').value.trim(),
     sla: {freshness: document.getElementById('intentFreshness').value.trim(),
@@ -1260,12 +1321,17 @@ function buildIntentPayload(){
 async function saveIntent(){
   const el = document.getElementById('intentResult');
   el.innerHTML = `<div class="conn-result">Saving…</div>`;
+  // A brand-new intent (from "+ New intent") has no real id yet -- let the backend derive one
+  // from the name instead of forcing it onto whatever the last-loaded intent's id was.
+  const idToSave = (currentIntentId && currentIntentId !== '__new__') ? currentIntentId : null;
   try {
     const r = await api('/api/intent', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({domain: currentDomain, client: 'default', intent: buildIntentPayload(), captured_by: 'human'})});
+      body: JSON.stringify({domain: currentDomain, client: 'default', intent: buildIntentPayload(),
+                            captured_by: 'human', intent_id: idToSave})});
     const j = await r.json();
     if (!r.ok) { el.innerHTML = `<div class="conn-result bad">✕ ${esc(j.detail || 'save failed')}</div>`; return; }
     el.innerHTML = `<div class="conn-result ok">✓ Intent saved for ${esc(currentDomain)}</div>`;
+    await loadIntentForm(idToSave || undefined);
     await refreshJourneyDataQuietly();
     await runGapAnalysisUI();
   } catch (e) {
@@ -1274,16 +1340,32 @@ async function saveIntent(){
 }
 window.saveIntent = saveIntent;
 
+async function deleteIntentUI(){
+  if (!currentIntentId || currentIntentId === '__new__') return;
+  const el = document.getElementById('intentResult');
+  try {
+    const r = await api(`/api/intent/${encodeURIComponent(currentDomain)}/${encodeURIComponent(currentIntentId)}`, {method:'DELETE'});
+    if (!r.ok) { el.innerHTML = `<div class="conn-result bad">✕ ${esc((await r.json()).detail || 'delete failed')}</div>`; return; }
+    newIntentUI();
+    await loadIntentsListUI();
+    await refreshJourneyDataQuietly();
+    await runGapAnalysisUI();
+  } catch (e) {
+    el.innerHTML = `<div class="conn-result bad">✕ ${esc(e.message)}</div>`;
+  }
+}
+window.deleteIntentUI = deleteIntentUI;
+
 function gapResultsHtml(report){
   if (!report.intent_captured) return `<div class="empty-note">No intent captured yet for ${esc(currentDomain)} — save one above first.</div>`;
   const gapRows = (report.data_point_gaps||[]).map(g => `<div class="gap-row ${g.status}">
     <span class="gst">${g.status === 'resolved' ? '✓ found' : '✕ open'}</span>
     <span class="gname">${esc(g.data_point)}</span>
-    <span class="gwhere">${esc(g.report)}${g.found_in.length ? ' — found in ' + g.found_in.map(esc).join(', ') : ' — not found in any known source'}</span>
+    <span class="gwhere">${esc(g.intent ? g.intent + ' — ' : '')}${esc(g.report)}${g.found_in.length ? ' — found in ' + g.found_in.map(esc).join(', ') : ' — not found in any known source'}</span>
   </div>`).join('') || `<div class="empty-note">No reports declared required data points yet.</div>`;
   const conflictRows = (report.definition_conflicts||[]).map(c => `<div class="conflict-row">
-    <span class="term">${esc(c.term)}</span> has ${c.definitions.length} different definitions:
-    <ul>${c.definitions.map(d => `<li>"${esc(d.definition)}"${d.source ? ' — ' + esc(d.source) : ''}</li>`).join('')}</ul>
+    <span class="term">${esc(c.term)}</span> has ${c.definitions.length} different definitions across intents:
+    <ul>${c.definitions.map(d => `<li>"${esc(d.definition)}"${d.intent ? ' — ' + esc(d.intent) : ''}${d.source ? ' (' + esc(d.source) + ')' : ''}</li>`).join('')}</ul>
   </div>`).join('');
   return `<div style="margin-bottom:14px;">
       <b style="color:${report.open_count ? 'var(--critical)' : 'var(--good)'};font-family:'IBM Plex Mono';font-size:13px;">

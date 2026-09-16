@@ -177,16 +177,21 @@ def capture_intent(domain: str, client: str, intent_json: str, run_id: str,
                     captured_by: str = "program-manager") -> str:
     """Records what the customer is actually building this for: business outcome, SLAs, the
     reports it feeds (each with the data points it needs), definition of done, and any business
-    term whose definition differs across their systems. Overwrites any prior intent record for
-    this domain -- a human revising intent should see exactly what they submitted, not a silent
-    merge with a stale draft. intent_json is a JSON object:
-    {"business_outcome": str, "definition_of_done": str,
+    term whose definition differs across their systems. A domain can carry more than one
+    intent -- a real deployment usually serves more than one application off the same data (a
+    claims dashboard AND a regulatory extract, say). Give intent_json a "name" and it's saved as
+    its own intent alongside any others already captured for this domain; leave "name" out and
+    it overwrites the domain's single unnamed ("primary") intent -- a human revising that one
+    intent should see exactly what they submitted, not a silent merge with a stale draft.
+    intent_json is a JSON object:
+    {"name": str (optional -- omit to target the primary/unnamed intent),
+     "business_outcome": str, "definition_of_done": str,
      "sla": {"freshness": str, "availability": str},
      "reports": [{"name": str, "description": str, "consumers": [str],
                   "required_data_points": [str]}],
      "definitions": [{"term": str, "definition": str, "source": str}],
      "stakeholders": [{"name": str, "role": str}]}
-    Persisted to contracts/intent/<domain>/intent.yaml.
+    Persisted to contracts/intent/<domain>/<intent_id>.yaml, one file per intent.
 
     Args:
         domain: the domain this intent belongs to
@@ -200,7 +205,7 @@ def capture_intent(domain: str, client: str, intent_json: str, run_id: str,
     intent_dict = _json_mod.loads(intent_json)
     path = intent_mod.capture_intent(domain, client, intent_dict, captured_by)
     _log("duckdb", domain, run_id, "specify", "program-manager", "completed",
-         f"intent captured for domain={domain!r}: "
+         f"intent captured for domain={domain!r} ({intent_dict.get('name', 'primary')!r}): "
          f"{len(intent_dict.get('reports') or [])} report(s), "
          f"{len(intent_dict.get('definitions') or [])} definition(s)")
     return _json({"ok": True, "path": str(path)})

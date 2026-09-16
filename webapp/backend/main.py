@@ -235,18 +235,34 @@ class IntentRequest(BaseModel):
     client: str = "default"
     intent: dict
     captured_by: str = "human"
+    intent_id: str | None = None
 
 
 @app.get("/api/intent")
-def api_intent_get(request: Request, domain: str = pipeline.DEFAULT_DOMAIN):
+def api_intent_get(request: Request, domain: str = pipeline.DEFAULT_DOMAIN, intent_id: str | None = None):
     _check_domain(request, domain)
-    return {"domain": domain, "intent": intent.load_intent(domain)}
+    return {"domain": domain, "intent": intent.load_intent(domain, intent_id)}
+
+
+@app.get("/api/intents")
+def api_intents_list(request: Request, domain: str = pipeline.DEFAULT_DOMAIN):
+    """Every intent this domain has captured -- a real deployment usually serves more than one
+    application off the same domain (a claims dashboard AND a regulatory extract, say), each
+    with its own report list and SLA."""
+    _check_domain(request, domain)
+    return {"domain": domain, "intents": intent.list_intents(domain)}
 
 
 @app.post("/api/intent")
 def api_intent_post(request: Request, body: IntentRequest):
     _check_domain(request, body.domain)
-    return intent.capture_intent(body.domain, body.client, body.intent, body.captured_by)
+    return intent.capture_intent(body.domain, body.client, body.intent, body.captured_by, body.intent_id)
+
+
+@app.delete("/api/intent/{domain}/{intent_id}")
+def api_intent_delete(request: Request, domain: str, intent_id: str):
+    _check_domain(request, domain)
+    return intent.delete_intent(domain, intent_id)
 
 
 @app.get("/api/intent/gap-analysis")
@@ -397,25 +413,46 @@ def api_sdlc():
 
 @app.get("/api/uploads")
 def api_uploads_list(request: Request):
-    _require_admin(request)
-    return {"uploads": uploads.list_uploads()}
+    # A company login only ever sees its own domain's uploads -- admin sees everything, the
+    # same "*" vs explicit-list pattern every other domain-scoped route already uses.
+    allowed = _user_domains(request)
+    records = uploads.list_uploads()
+    if allowed != "*":
+        records = [r for r in records if uploads.workbook_domain(r) in allowed]
+    return {"uploads": records}
 
 
 @app.post("/api/uploads")
 async def api_uploads_create(request: Request, kind: str = Form(...), file: UploadFile = File(...)):
-    _require_admin(request)
+    # Preview is a dry run -- compile_workbook never writes to contracts/ -- so it's safe to let
+    # any logged-in account (scoped or admin) try one. Real enforcement happens at approve time
+    # below, where a write is actually about to happen.
+    user = getattr(request.state, "user", None)
     if not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="only .xlsx workbooks are accepted")
     content = await file.read()
     try:
-        return uploads.save_and_preview(kind, file.filename, content)
+        return uploads.save_and_preview(kind, file.filename, content,
+                                        uploaded_by=user["username"] if user else "local")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/uploads/{upload_id}/approve")
 def api_uploads_approve(request: Request, upload_id: str):
-    _require_admin(request)
+    # A scoped company login may only freeze a workbook that declares ITS OWN domain -- adding
+    # or amending their own sources is a real, legitimate self-service action; creating an
+    # entirely new domain from scratch (a workbook declaring a domain the account has no
+    # existing access to) stays admin-only, since there's no existing scope to check it against.
+    # Re-derived fresh from the stored workbook, not trusted from the earlier preview call.
+    records = {r["id"]: r for r in uploads.list_uploads()}
+    record = records.get(upload_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"no upload {upload_id!r}")
+    domain = uploads.workbook_domain(record)
+    if domain is None:
+        raise HTTPException(status_code=400, detail="could not determine this workbook's domain")
+    _check_domain(request, domain)
     try:
         return uploads.approve_and_compile(upload_id)
     except KeyError as exc:

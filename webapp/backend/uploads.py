@@ -45,6 +45,20 @@ def list_uploads() -> list[dict[str, Any]]:
     return sorted(status.values(), key=lambda r: r["uploaded_at"], reverse=True)
 
 
+def workbook_domain(record: dict[str, Any]) -> str | None:
+    """Re-derives the domain a workbook actually declares by re-parsing the stored file directly
+    -- never trusted from the record's own cached preview text, the same "re-derive, never
+    trust" discipline every gate in this project already follows. Returns None if the workbook
+    can't be parsed (e.g. malformed) rather than raising, so a broken upload fails a domain check
+    cleanly instead of 500ing."""
+    try:
+        from emitters.intake_compiler import compile_workbook
+        spec, _errors = compile_workbook(pathlib.Path(record["stored_path"]))
+        return spec.get("project", {}).get("domain")
+    except Exception:  # noqa: BLE001 -- an unparseable workbook has no domain to check against
+        return None
+
+
 def _run_compiler(kind: str, workbook_path: pathlib.Path, write: bool) -> dict[str, Any]:
     module, extra_args = COMPILERS[kind]
     args = [PYTHON, "-m", module, "--workbook", str(workbook_path), *extra_args]
@@ -59,7 +73,7 @@ def _run_compiler(kind: str, workbook_path: pathlib.Path, write: bool) -> dict[s
     }
 
 
-def save_and_preview(kind: str, filename: str, content: bytes) -> dict[str, Any]:
+def save_and_preview(kind: str, filename: str, content: bytes, uploaded_by: str = "unknown") -> dict[str, Any]:
     if kind not in COMPILERS:
         raise ValueError(f"kind must be one of {list(COMPILERS)}, got {kind!r}")
 
@@ -77,6 +91,7 @@ def save_and_preview(kind: str, filename: str, content: bytes) -> dict[str, Any]
         "stored_path": str(dest),
         "kind": kind,
         "uploaded_at": time.time(),
+        "uploaded_by": uploaded_by,
         "preview": result,
         "compiled": False,
         "compile_result": None,

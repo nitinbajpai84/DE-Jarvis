@@ -4,17 +4,27 @@ Intent: what the customer is actually trying to build this platform FOR -- which
 feeds, the SLAs, the definition of done, and where business terms carry more than one
 definition across their systems ("whose definition of active customer applies"). Nothing in
 the intake workbook captures any of this; `01_Project` is purely technical/environment config.
-Persisted to contracts/intent/<domain>/intent.yaml -- tracked in git, unlike contracts/discovery/,
-because a human deliberately authored it; it isn't derived from probing a live system.
+Persisted to contracts/intent/<domain>/<intent_id>.yaml -- tracked in git, unlike
+contracts/discovery/, because a human deliberately authored it; it isn't derived from probing a
+live system.
+
+A domain can carry MORE THAN ONE intent -- a real deployment isn't "one report the platform
+serves," it's every distinct application/use case that draws on the same underlying data (a
+claims dashboard AND an underwriting scorecard AND a regulatory extract, each with its own
+owner, SLA and report list). One file per intent, keyed by a slug of its own `name`; a caller
+that doesn't give a name lands on "primary" (the pre-multi-intent behavior, unchanged for
+existing single-intent callers like the G1 gate tool).
 
 Gap analysis: a MECHANICAL check, not a semantic one, on purpose. Every data point a report
 declares it needs is looked up by exact (case-insensitive) name against every column this
 platform actually knows about for the domain -- contracted source schemas (approved) and
 discovery profiles (Step 01, not yet approved). A name that matches nowhere is an open gap. A
-term defined more than once with different wording is an open conflict. No fuzzy matching, no
-LLM judgement call about whether two phrasings mean the same thing -- CLAUDE.md rule 4 (never
-silently invent/guess) applies exactly as much here as it does to a DQ rule. A human resolves
-what this can't decide; this only refuses to hide that a decision is needed.
+term defined more than once with different wording is an open conflict -- across ALL of a
+domain's intents, since two applications sharing one domain still can't disagree about what
+"active customer" means. No fuzzy matching, no LLM judgement call about whether two phrasings
+mean the same thing -- CLAUDE.md rule 4 (never silently invent/guess) applies exactly as much
+here as it does to a DQ rule. A human resolves what this can't decide; this only refuses to hide
+that a decision is needed.
 
 Recomputed fresh on every call rather than trusted from the persisted file -- the same reason
 every gate tool in agents/jarvis_tools.py re-derives its own evidence: accept_catalogue (G1)
@@ -25,6 +35,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import pathlib
+import re
 import sys
 from typing import Any
 
@@ -34,27 +45,64 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 INTENT_DIR = REPO_ROOT / "contracts" / "intent"
+# gap_analysis.json lives alongside <intent_id>.yaml in the same directory but has a .json
+# extension, so list_intents' *.yaml glob never picks it up as an intent record.
+
+
+def _slugify(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
+    return slug or "primary"
 
 
 # --------------------------------------------------------------------------- intent capture
 
-def _intent_path(domain: str) -> pathlib.Path:
-    return INTENT_DIR / domain / "intent.yaml"
+def _intent_dir(domain: str) -> pathlib.Path:
+    return INTENT_DIR / domain
 
 
-def load_intent(domain: str) -> dict[str, Any] | None:
-    path = _intent_path(domain)
-    if not path.exists():
-        return None
-    return yaml.safe_load(path.read_text())
+def _intent_path(domain: str, intent_id: str) -> pathlib.Path:
+    return _intent_dir(domain) / f"{intent_id}.yaml"
 
 
-def capture_intent(domain: str, client: str, intent: dict[str, Any], captured_by: str) -> pathlib.Path:
-    """Overwrites the intent record for this domain. Deliberately a replace, not a merge -- a
-    human revising the intent should see exactly what they submitted, not a silent merge with
-    stale fields from an earlier draft. Minimal shape validation only: this is a place to
-    capture what the customer said, not a place to second-guess it."""
+def list_intents(domain: str) -> list[dict[str, Any]]:
+    """Every intent captured for this domain, oldest first (stable, predictable ordering for a
+    UI list) -- not just the one a legacy single-intent caller happens to load."""
+    d = _intent_dir(domain)
+    if not d.exists():
+        return []
+    out = []
+    for p in sorted(d.glob("*.yaml")):
+        try:
+            record = yaml.safe_load(p.read_text())
+        except Exception:  # noqa: BLE001 -- a corrupt file shouldn't blank the whole list
+            continue
+        if record:
+            out.append(record)
+    return sorted(out, key=lambda r: r.get("captured_at", ""))
+
+
+def load_intent(domain: str, intent_id: str | None = None) -> dict[str, Any] | None:
+    """With intent_id: that specific intent, or None if it doesn't exist. Without: the first
+    intent on record (by capture order) -- the pre-multi-intent behavior every existing caller
+    (journey.py's `intent_captured` flag, the G1 gate tool) already relies on, unchanged."""
+    if intent_id is not None:
+        path = _intent_path(domain, intent_id)
+        return yaml.safe_load(path.read_text()) if path.exists() else None
+    intents = list_intents(domain)
+    return intents[0] if intents else None
+
+
+def capture_intent(domain: str, client: str, intent: dict[str, Any], captured_by: str,
+                    intent_id: str | None = None) -> pathlib.Path:
+    """Overwrites the intent record at this intent_id. Deliberately a replace, not a merge -- a
+    human revising an intent should see exactly what they submitted, not a silent merge with
+    stale fields from an earlier draft. intent_id defaults to a slug of intent['name'] if given,
+    else the fixed id "primary" (a caller that's never heard of multi-intent -- e.g. the G1 gate
+    tool's existing signature -- always lands on the same single record it always has)."""
+    name = (intent.get("name") or "").strip()
+    resolved_id = intent_id or (_slugify(name) if name else "primary")
     record = {
+        "intent_id": resolved_id, "name": name or resolved_id,
         "domain": domain, "client": client,
         "business_outcome": intent.get("business_outcome", ""),
         "definition_of_done": intent.get("definition_of_done", ""),
@@ -65,10 +113,18 @@ def capture_intent(domain: str, client: str, intent: dict[str, Any], captured_by
         "captured_by": captured_by,
         "captured_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
     }
-    path = _intent_path(domain)
+    path = _intent_path(domain, resolved_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(record, sort_keys=False, allow_unicode=True))
     return path
+
+
+def delete_intent(domain: str, intent_id: str) -> bool:
+    path = _intent_path(domain, intent_id)
+    if not path.exists():
+        return False
+    path.unlink()
+    return True
 
 
 # --------------------------------------------------------------------------- known columns
@@ -117,37 +173,44 @@ def _find_data_point(name: str, columns: dict[str, dict[str, list[str]]]) -> lis
 
 
 def run_gap_analysis(domain: str) -> dict[str, Any]:
-    """The real check: every required_data_point in every report, looked up against every
-    column this platform actually knows about right now. Recomputes from disk every call --
-    contracts/discovery/ and contracts/sources/ can both have changed since intent was captured."""
-    intent = load_intent(domain)
-    if intent is None:
+    """The real check: every required_data_point in every report of every intent this domain has
+    captured, looked up against every column this platform actually knows about right now.
+    Recomputes from disk every call -- contracts/discovery/ and contracts/sources/ can both have
+    changed since any intent was captured. Definition conflicts are checked ACROSS every intent
+    together, not per-intent -- two applications sharing one domain still can't disagree about
+    what "active customer" means, so a term one intent defines one way and another defines a
+    different way is exactly the kind of conflict this exists to catch."""
+    intents = list_intents(domain)
+    if not intents:
         # Nothing to persist -- this branch fires just from a human viewing Step 02 for a
-        # domain that hasn't captured intent yet (journey.py calls run_gap_analysis() on every
-        # page load), and writing a file for that would mean every domain anyone ever glanced
-        # at gets a contracts/intent/<domain>/ directory with nothing meaningful in it.
-        return {"domain": domain, "intent_captured": False, "data_point_gaps": [],
+        # domain that hasn't captured any intent yet (journey.py calls run_gap_analysis() on
+        # every page load), and writing a file for that would mean every domain anyone ever
+        # glanced at gets a contracts/intent/<domain>/ directory with nothing meaningful in it.
+        return {"domain": domain, "intent_captured": False, "intents": [], "data_point_gaps": [],
                 "definition_conflicts": [], "open_count": 0,
                 "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat()}
 
     columns = known_columns(domain)
     gaps = []
-    for rep in intent.get("reports", []):
-        for dp in rep.get("required_data_points", []):
-            hits = _find_data_point(dp, columns)
-            gaps.append({
-                "report": rep.get("name", "(unnamed report)"), "data_point": dp,
-                "status": "resolved" if hits else "open",
-                "found_in": hits,
-            })
+    for intent in intents:
+        for rep in intent.get("reports", []):
+            for dp in rep.get("required_data_points", []):
+                hits = _find_data_point(dp, columns)
+                gaps.append({
+                    "intent": intent.get("name", intent.get("intent_id")),
+                    "report": rep.get("name", "(unnamed report)"), "data_point": dp,
+                    "status": "resolved" if hits else "open",
+                    "found_in": hits,
+                })
 
     conflicts = []
     by_term: dict[str, list[dict[str, str]]] = {}
-    for d in intent.get("definitions", []):
-        term = (d.get("term") or "").strip().lower()
-        if not term:
-            continue
-        by_term.setdefault(term, []).append(d)
+    for intent in intents:
+        for d in intent.get("definitions", []):
+            term = (d.get("term") or "").strip().lower()
+            if not term:
+                continue
+            by_term.setdefault(term, []).append({**d, "intent": intent.get("name", intent.get("intent_id"))})
     for term, entries in by_term.items():
         distinct = {(e.get("definition") or "").strip() for e in entries}
         if len(distinct) > 1:
@@ -156,6 +219,7 @@ def run_gap_analysis(domain: str) -> dict[str, Any]:
     open_count = sum(1 for g in gaps if g["status"] == "open") + len(conflicts)
     report = {
         "domain": domain, "intent_captured": True,
+        "intents": [{"intent_id": i.get("intent_id"), "name": i.get("name")} for i in intents],
         "data_point_gaps": gaps, "definition_conflicts": conflicts,
         "open_count": open_count,
         "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),

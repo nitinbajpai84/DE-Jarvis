@@ -15,13 +15,22 @@ sys.path.insert(0, str(REPO_ROOT))
 from emitters import intent as intent_mod  # noqa: E402
 
 
-def load_intent(domain: str) -> dict[str, Any] | None:
-    return intent_mod.load_intent(domain)
+def load_intent(domain: str, intent_id: str | None = None) -> dict[str, Any] | None:
+    return intent_mod.load_intent(domain, intent_id)
 
 
-def capture_intent(domain: str, client: str, intent_data: dict, captured_by: str = "human") -> dict[str, Any]:
-    path = intent_mod.capture_intent(domain, client, intent_data, captured_by)
+def list_intents(domain: str) -> list[dict[str, Any]]:
+    return intent_mod.list_intents(domain)
+
+
+def capture_intent(domain: str, client: str, intent_data: dict, captured_by: str = "human",
+                    intent_id: str | None = None) -> dict[str, Any]:
+    path = intent_mod.capture_intent(domain, client, intent_data, captured_by, intent_id)
     return {"ok": True, "path": str(path)}
+
+
+def delete_intent(domain: str, intent_id: str) -> dict[str, Any]:
+    return {"ok": intent_mod.delete_intent(domain, intent_id)}
 
 
 def run_gap_analysis(domain: str) -> dict[str, Any]:

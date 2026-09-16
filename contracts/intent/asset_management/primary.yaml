@@ -1,3 +1,5 @@
+intent_id: primary
+name: Portfolio Value Dashboard
 domain: asset_management
 client: default
 business_outcome: Give the investments team a daily view of portfolio value and holdings
