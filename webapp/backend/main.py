@@ -34,7 +34,7 @@ if _env_path.exists():
             _k, _v = _line.split("=", 1)
             os.environ.setdefault(_k.strip(), _v.strip())
 
-from webapp.backend import agent_runs, architecture, dashboard, discovery, intent, journey, pipeline, sdlc, test_pack, uploads  # noqa: E402
+from webapp.backend import agent_runs, architecture, dashboard, discovery, intent, journey, ops_tickets, pipeline, sdlc, test_pack, uploads  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
 app = FastAPI(title="Jarvis Control Room")
@@ -243,6 +243,55 @@ def api_dashboard_save(body: DashboardSaveRequest):
     """Saves an accepted (or edited) proposal into contracts/semantics/<domain>.gold.yaml's
     dashboards: field -- a field the schema has always had, now actually populated."""
     return dashboard.save(body.domain, body.name, body.tiles)
+
+
+class TicketAssignRequest(BaseModel):
+    domain: str
+    target: str = "duckdb"
+    ticket_id: int
+    assigned_to: str
+
+
+class TicketFixRequest(BaseModel):
+    domain: str
+    target: str = "duckdb"
+    ticket_id: int
+    resolution_note: str
+
+
+class TicketRejectRequest(BaseModel):
+    domain: str
+    target: str = "duckdb"
+    ticket_id: int
+    reason: str
+
+
+@app.get("/api/tickets")
+def api_tickets_list(domain: str = pipeline.DEFAULT_DOMAIN, target: str = "duckdb",
+                     status: str | None = None):
+    return {"domain": domain, "tickets": ops_tickets.list_tickets(domain, target, status)}
+
+
+@app.post("/api/tickets/scan")
+def api_tickets_scan(domain: str = Form(...), target: str = Form("duckdb")):
+    """Runs the real per-layer test pack and raises one tracked ticket per currently-failing
+    case that isn't already tracked -- see emitters/ops_tickets.py."""
+    return ops_tickets.scan(domain, target)
+
+
+@app.post("/api/tickets/assign")
+def api_tickets_assign(body: TicketAssignRequest):
+    return ops_tickets.assign(body.domain, body.target, body.ticket_id, body.assigned_to)
+
+
+@app.post("/api/tickets/propose-fix")
+def api_tickets_propose_fix(body: TicketFixRequest):
+    return ops_tickets.propose_fix(body.domain, body.target, body.ticket_id, body.resolution_note)
+
+
+@app.post("/api/tickets/reject")
+def api_tickets_reject(body: TicketRejectRequest):
+    return ops_tickets.reject(body.domain, body.target, body.ticket_id, body.reason)
 
 
 @app.get("/api/journey")

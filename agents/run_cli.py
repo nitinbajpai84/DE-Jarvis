@@ -86,6 +86,25 @@ _TASKS = {
         f"are failures -- the gate's own refusal, re-derived from fresh evidence, is the record "
         f"that matters, not your own summary of the test pack."
     ),
+    # kind="ops": Step 05 incident resolution for a ticket already at fix_pending_approval (the
+    # DE agent/human already called propose_ticket_fix outside this run) -- exercises
+    # accept_ticket_resolution (G5) as a real agent-driven call, not a direct tool call from a
+    # test script, mirroring how "validate" proves G3.
+    "ops": lambda a, run_id: (
+        f"Ticket #{a.ticket_id} for domain '{a.domain_hint}' on target '{a.target}' has a "
+        f"resolution_note on file and is waiting on your sign-off. Call list_open_tickets with "
+        f"domain='{a.domain_hint}', target='{a.target}' and report ticket #{a.ticket_id}'s "
+        f"current status and resolution_note plainly. Then call accept_ticket_resolution with "
+        f"domain='{a.domain_hint}', target='{a.target}', ticket_id={a.ticket_id}, "
+        f"run_id='{run_id}' (use this exact run_id -- it is this run's own identifier, not "
+        f"something to invent) to attempt sign-off at the G5 gate -- this will pause for a "
+        f"human decision before it runs, and will REFUSE afterward if the ticket's exact "
+        f"failing case does not re-run clean, even if approved. Report exactly what happens, "
+        f"including the full refusal reason if it refuses. Do not skip calling "
+        f"accept_ticket_resolution even if you already believe the fix worked -- the gate's own "
+        f"re-verification against a fresh test pack run is the record that matters, not the "
+        f"resolution_note or your own belief."
+    ),
 }
 
 
@@ -96,7 +115,12 @@ def cmd_start(args: argparse.Namespace) -> None:
 
     con, control = _control(args.domain_hint)
     try:
-        workbook_marker = str(args.workbook) if kind == "intake" else f"<{kind}:{args.domain_hint}:{args.target}>"
+        if kind == "intake":
+            workbook_marker = str(args.workbook)
+        elif kind == "ops":
+            workbook_marker = f"<ops:{args.domain_hint}:{args.target}:ticket-{args.ticket_id}>"
+        else:
+            workbook_marker = f"<{kind}:{args.domain_hint}:{args.target}>"
         start_sdlc_run(con, control, run_id=run_id, domain=args.domain_hint, client="default",
                        project_code=args.domain_hint, workbook_path=workbook_marker,
                        thread_id=thread_id, started_by=args.started_by)
@@ -174,9 +198,10 @@ def main() -> None:
     sub = ap.add_subparsers(dest="command", required=True)
 
     p_start = sub.add_parser("start")
-    p_start.add_argument("--kind", choices=["intake", "validate"], default="intake")
+    p_start.add_argument("--kind", choices=["intake", "validate", "ops"], default="intake")
     p_start.add_argument("--workbook", default=None, help="required for --kind intake")
-    p_start.add_argument("--target", default=None, help="required for --kind validate ('duckdb' or 'databricks')")
+    p_start.add_argument("--target", default=None, help="required for --kind validate/ops ('duckdb' or 'databricks')")
+    p_start.add_argument("--ticket-id", type=int, default=None, help="required for --kind ops")
     p_start.add_argument("--domain-hint", required=True)
     p_start.add_argument("--run-id", default=None)
     p_start.add_argument("--thread-id", default=None)
@@ -197,6 +222,11 @@ def main() -> None:
             ap.error("--workbook is required for --kind intake")
         if args.kind == "validate" and not args.target:
             ap.error("--target is required for --kind validate")
+        if args.kind == "ops":
+            if not args.target:
+                ap.error("--target is required for --kind ops")
+            if not args.ticket_id:
+                ap.error("--ticket-id is required for --kind ops")
     args.func(args)
 
 

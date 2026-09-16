@@ -114,10 +114,14 @@ def _observed(step_id: str, domain: str, target: str) -> dict[str, Any] | None:
                 "generated_tests": None, "dashboards": None}
 
     if step_id == "operate":
+        from emitters.ops_tickets import list_tickets
         alerts = pipeline.recent_alerts(target, domain=domain)
+        tickets = list_tickets(domain, target)
+        open_statuses = {"open", "assigned", "fix_pending_approval"}
         return {"failures": len(alerts["failures"]),
                 "latest_digest_date": (alerts["latest_digest"] or {}).get("date"),
-                "open_tickets": None}
+                "open_tickets": sum(1 for t in tickets if t["status"] in open_statuses),
+                "resolved_tickets": sum(1 for t in tickets if t["status"] == "resolved")}
 
     return None
 

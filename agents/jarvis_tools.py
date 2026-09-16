@@ -34,7 +34,8 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from emitters import architecture as architecture_mod, dashboard as dashboard_mod, intake_compiler  # noqa: E402
-from emitters import intent as intent_mod, profiler, test_pack as test_pack_mod  # noqa: E402
+from emitters import intent as intent_mod, ops_tickets as ops_tickets_mod  # noqa: E402
+from emitters import profiler, test_pack as test_pack_mod  # noqa: E402
 from emitters.control_plane import ensure_control_schema, log_sdlc_stage  # noqa: E402
 from emitters.sql_dialect import connect as sql_connect, resolve_schema  # noqa: E402
 
@@ -772,6 +773,155 @@ def save_dashboard_tool(domain: str, name: str, tiles_json: str, run_id: str) ->
     return _json(result)
 
 
+# ---------------------------------------------------------------------------------------
+# Step 05 incident loop: Agent 7 (Ops) detects and raises; Agent 4 (DE) is assigned and
+# proposes a fix; G5 is the human gate that re-verifies before resolving -- never trusts the
+# DE's own resolution_note. See emitters/ops_tickets.py: every ticket traces to a real failing
+# case from emitters/test_pack.py, the same per-layer checker G3 already uses, so "is this
+# actually a problem" is answered once, in one place, not re-invented here.
+# ---------------------------------------------------------------------------------------
+
+@tool
+def scan_and_raise_tickets(domain: str, target: str, run_id: str) -> str:
+    """Agent 7 (Ops): runs the real per-layer test pack and raises one tracked ticket per
+    currently-failing case that doesn't already have an open ticket (deduplicated by the
+    test pack's own stable case id, so re-scanning doesn't spam duplicate tickets for a
+    standing issue). Posts a Slack summary if any new tickets were raised and a webhook is
+    configured. Ungated -- this only detects and records, it changes nothing about the
+    pipeline itself.
+
+    Args:
+        domain: the domain to scan
+        target: 'duckdb' or 'databricks'
+        run_id: the sdlc_run id this action belongs to
+    """
+    result = ops_tickets_mod.raise_tickets_from_scan(domain, target, raised_by="ops-monitor")
+    if result["newly_raised"]:
+        ops_tickets_mod.notify_slack(
+            f":rotating_light: [{domain}] Ops scan raised {len(result['newly_raised'])} new "
+            f"ticket(s): {result['newly_raised']} -- {result['already_ticketed']} already tracked."
+        )
+    _log(target, domain, run_id, "operate", "ops-monitor",
+         "completed" if not result["newly_raised"] else "failed",
+         f"ops scan for domain={domain!r}: {len(result['newly_raised'])} new ticket(s), "
+         f"{result['already_ticketed']} already tracked")
+    return _json(result)
+
+
+@tool
+def list_open_tickets(domain: str, target: str, run_id: str) -> str:
+    """Lists tickets for this domain, optionally filtered to one status
+    (open/assigned/fix_pending_approval/resolved/rejected). Read-only.
+
+    Args:
+        domain: the domain to list tickets for
+        target: 'duckdb' or 'databricks'
+        run_id: the sdlc_run id this action belongs to (for stage logging only)
+    """
+    tickets = ops_tickets_mod.list_tickets(domain, target)
+    return _json({"domain": domain, "tickets": tickets})
+
+
+@tool
+def assign_ticket_tool(domain: str, target: str, ticket_id: int, assigned_to: str, run_id: str) -> str:
+    """Assigns an open ticket to an agent (e.g. 'de-bronze'/'de-silver'/'de-gold') -- Agent 7
+    handing off to Agent 4. Ungated.
+
+    Args:
+        domain: the domain the ticket belongs to
+        target: 'duckdb' or 'databricks'
+        ticket_id: the ticket to assign
+        assigned_to: which agent it's assigned to
+        run_id: the sdlc_run id this action belongs to
+    """
+    result = ops_tickets_mod.assign_ticket(domain, target, ticket_id, assigned_to)
+    _log(target, domain, run_id, "operate", "ops-monitor", "completed",
+         f"ticket {ticket_id} assigned to {assigned_to!r}")
+    return _json(result)
+
+
+@tool
+def propose_ticket_fix(domain: str, target: str, ticket_id: int, resolution_note: str, run_id: str) -> str:
+    """Agent 4 (DE): records what was done to fix an assigned ticket and moves it to
+    fix_pending_approval. This is NOT itself resolution -- it's the DE's account, which the G5
+    gate (accept_ticket_resolution) will independently re-verify before trusting. Call this
+    AFTER actually making whatever change was needed (re-running a loader, correcting a source
+    file, etc. via the real tools that do those things) -- resolution_note should describe what
+    was actually done, not a plan.
+
+    Args:
+        domain: the domain the ticket belongs to
+        target: 'duckdb' or 'databricks'
+        ticket_id: the ticket being fixed
+        resolution_note: what was actually done
+        run_id: the sdlc_run id this action belongs to
+    """
+    result = ops_tickets_mod.propose_fix(domain, target, ticket_id, resolution_note, fixed_by="de-agent")
+    _log(target, domain, run_id, "operate", "de-agent", "completed",
+         f"ticket {ticket_id} fix proposed, awaiting G5 approval: {resolution_note[:200]}")
+    return _json(result)
+
+
+@tool
+def accept_ticket_resolution(domain: str, target: str, ticket_id: int, run_id: str) -> str:
+    """G5 GATE -- records resolution of an incident ticket. Pauses for human approval before it
+    runs. Re-runs the real test pack and checks the EXACT case this ticket is about (matched by
+    the test pack's own stable case id) is now passing -- REFUSES even after approval if it's
+    still failing, regardless of what the DE's resolution_note claims. Writes
+    evidence/gates/<run>-G5.md and notifies Slack only on a genuine, re-verified resolution.
+
+    Args:
+        domain: the domain the ticket belongs to
+        target: 'duckdb' or 'databricks'
+        ticket_id: the ticket to resolve
+        run_id: the sdlc_run id this action belongs to
+    """
+    ticket = ops_tickets_mod.get_ticket(domain, target, ticket_id)
+    if ticket is None:
+        return _json({"ok": False, "gate": "G5", "refused": True, "reason": f"no ticket {ticket_id}"})
+    result = ops_tickets_mod.verify_and_resolve(domain, target, ticket_id, resolved_by="human+system")
+    if not result["ok"] or not result["resolved"]:
+        _log(target, domain, run_id, "operate", "human+system", "failed",
+             f"G5 refused: ticket {ticket_id} case {ticket['entity']!r} still fails")
+        return _json({"ok": False, "gate": "G5", "refused": True,
+                      "reason": result.get("reason", "verification failed"), "detail": result})
+    record = _write_gate_record(
+        "G5", "Incident Resolution", run_id, domain,
+        approved=[f"Ticket #{ticket_id}: {ticket['description']}",
+                  f"Assigned to: {ticket['assigned_to']}",
+                  f"Resolution: {ticket['resolution_note']}",
+                  f"Re-verified by test pack ({result.get('test_run_id', 'n/a')}): PASS"],
+        sections="## How this was verified\nThe exact failing case this ticket names was re-checked "
+                 "fresh, not read from the DE's own claim.\n",
+    )
+    ops_tickets_mod.notify_slack(
+        f":white_check_mark: [{domain}] Ticket #{ticket_id} resolved -- {ticket['entity']} -- "
+        f"verified by test pack, approved by a human."
+    )
+    _log(target, domain, run_id, "operate", "human+system", "completed",
+         f"G5 accepted: ticket {ticket_id} genuinely resolved and verified")
+    return _json({"ok": True, "gate": "G5", "ticket_id": ticket_id, "record": str(record)})
+
+
+@tool
+def reject_ticket_tool(domain: str, target: str, ticket_id: int, reason: str, run_id: str) -> str:
+    """Rejects a ticket (e.g. not a real issue, or won't-fix) without attempting resolution.
+    Ungated -- rejecting is not a claim of a fix, so there's nothing for a human to verify
+    beyond the reason given.
+
+    Args:
+        domain: the domain the ticket belongs to
+        target: 'duckdb' or 'databricks'
+        ticket_id: the ticket to reject
+        reason: why
+        run_id: the sdlc_run id this action belongs to
+    """
+    result = ops_tickets_mod.reject_ticket(domain, target, ticket_id, reason)
+    _log(target, domain, run_id, "operate", "human+system", "completed",
+         f"ticket {ticket_id} rejected: {reason}")
+    return _json(result)
+
+
 @tool
 def run_ops_readiness(domain: str, target: str, run_id: str) -> str:
     """Ops readiness check for the G4 gate: runs the WHOLE pipeline end to end for this domain
@@ -872,4 +1022,6 @@ ALL_TOOLS = [test_source_connection, profile_source,
              run_silver_domain, run_gold_domain, run_regression_tests,
              accept_catalogue, run_test_pack, gather_validation_pack, accept_validation,
              render_dashboard_tool, save_dashboard_tool,
+             scan_and_raise_tickets, list_open_tickets, assign_ticket_tool,
+             propose_ticket_fix, accept_ticket_resolution, reject_ticket_tool,
              run_ops_readiness, accept_go_live]

@@ -77,8 +77,10 @@ JOURNEY = [
         "step": 5, "id": "operate", "name": "Operations",
         "tagline": "Readiness, the daily report, and the incident loop back through the DE and test agents.",
         "agents": [7, 4, 5, 3], "capability": "partial",
-        "gap": "Slack alerting and the daily digest are live; readiness sign-off, tickets and the "
-               "resolution loop are not.",
+        "gap": "Slack alerting, the daily digest, go-live readiness sign-off (G4), and the full "
+               "ticket loop (raise -> assign -> DE fix -> G5 re-verified sign-off) are all real. "
+               "What's still missing: Ops doesn't run on a schedule (every check here is "
+               "triggered on demand), and there's no dashboard view of ticket history over time.",
     },
 ]
 
@@ -122,6 +124,13 @@ GATES = [
         "approves": "Handing the pipeline to the daily schedule and the on-call loop.",
         "prep": "run_ops_readiness", "tool": "accept_go_live", "capability": "live",
         "rule": "The whole pipeline has run end to end on the target platform since the last change.",
+    },
+    {
+        "id": "G5", "step": 5, "name": "Incident resolution",
+        "approves": "Closing an ops ticket the DE agent claims is fixed.",
+        "prep": "propose_ticket_fix", "tool": "accept_ticket_resolution", "capability": "live",
+        "rule": "The ticket's exact failing case (from the same test pack G3 uses) must re-run "
+                "clean. The DE's resolution_note is evidence to review, never trusted on its own.",
     },
 ]
 

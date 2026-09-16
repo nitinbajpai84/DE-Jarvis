@@ -333,6 +333,26 @@
                  font-family:'IBM Plex Mono';font-variant-numeric:tabular-nums;}
   .dash-table tr:last-child td{border-bottom:none;}
   .dash-table td:first-child{color:var(--text-primary);font-weight:600;}
+
+  /* ---------------- ops tickets (step 05, agent 7) ---------------- */
+  .ticket-card{border:1px solid var(--border-soft);border-radius:12px;padding:14px 16px;
+              background:var(--bg-panel-2);margin-bottom:10px;}
+  .ticket-card:last-child{margin-bottom:0;}
+  .ticket-top{display:flex;flex-wrap:wrap;gap:9px;align-items:center;}
+  .ticket-id{font-family:'IBM Plex Mono';font-size:12px;font-weight:600;color:var(--text-muted);}
+  .ticket-entity{font-family:'IBM Plex Mono';font-size:12.5px;color:var(--text-primary);font-weight:600;}
+  .ticket-status{margin-left:auto;font-size:9.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+                padding:4px 10px;border-radius:20px;flex:none;}
+  .ticket-status.open{background:rgba(234,91,87,.14);color:var(--critical);}
+  .ticket-status.assigned{background:rgba(227,172,62,.14);color:var(--warning);}
+  .ticket-status.fix_pending_approval{background:rgba(240,193,90,.16);color:var(--gold);animation:blink 1.6s infinite;}
+  .ticket-status.resolved{background:rgba(63,192,122,.13);color:var(--good);}
+  .ticket-status.rejected{background:rgba(91,104,128,.16);color:var(--text-muted);}
+  .ticket-desc{font-size:12.5px;color:var(--text-secondary);margin-top:8px;}
+  .ticket-meta{font-size:10.5px;color:var(--text-muted);margin-top:6px;font-family:'IBM Plex Mono';}
+  .ticket-actions{display:flex;gap:7px;margin-top:11px;flex-wrap:wrap;align-items:center;}
+  .ticket-actions input{background:var(--bg-raised);border:1px solid var(--border);color:var(--text-primary);
+                        font-size:11.5px;padding:6px 9px;border-radius:7px;font-family:inherit;min-width:160px;}
   .footnote{font-size:11.5px;color:var(--text-muted);line-height:1.6;padding-top:6px;}
   .footnote b{color:var(--text-secondary);}
 
@@ -811,9 +831,19 @@ dim_awm_portfolio | scd1"></textarea></label>
       <div class="stats">
         <div class="stat"><b style="color:${(o.failures||0) ? 'var(--critical)' : 'var(--good)'}">${fmtNum(o.failures)}</b><span>open failures</span></div>
         <div class="stat"><b style="font-size:13px;line-height:2">${esc(o.latest_digest_date||'—')}</b><span>last digest</span></div>
-        <div class="stat muted"><b>—</b><span>open tickets</span></div>
+        <div class="stat"><b style="color:${(o.open_tickets||0) ? 'var(--warning)' : 'var(--good)'}">${fmtNum(o.open_tickets)}</b><span>open tickets</span></div>
+        <div class="stat"><b style="color:var(--good)">${fmtNum(o.resolved_tickets)}</b><span>resolved tickets</span></div>
       </div>
       <div class="alert-feed" id="alertFeed" style="margin-top:15px;"><div class="empty-note">Loading…</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Incident tickets</h3>
+        <span class="note">Agent 7 detects (via ${'the real per-layer test pack'}) — Agent 4 fixes — G5 re-verifies before closing</span></div>
+      <div class="conn-actions" style="margin-top:0;">
+        <button class="btn primary" onclick="scanForTicketsUI()">Scan for issues</button>
+      </div>
+      <div id="ticketScanResult" style="margin-top:11px;"></div>
+      <div id="ticketList" style="margin-top:14px;"><div class="empty-note">Loading…</div></div>
     </div>`;
   }
 
@@ -827,7 +857,7 @@ dim_awm_portfolio | scd1"></textarea></label>
     if (o.intent_captured) runGapAnalysisUI();
   }
   if (s.id === 'build') { refreshFlow(); loadAgentRuns(); }
-  if (s.id === 'operate') { refreshAlerts(); }
+  if (s.id === 'operate') { refreshAlerts(); loadTicketsUI(); }
   if (s.id === 'sources') { renderConnFields(); loadProfiles(); }
   if (s.id === 'validate') { loadDashboardUI(); }
 }
@@ -1001,6 +1031,115 @@ async function refreshAlerts(){
     feed.innerHTML = `<div class="empty-note">Could not load alerts: ${esc(e.message)}</div>`;
   }
 }
+
+/* ============================== incident tickets (step 05, agent 7) ============================== */
+const TICKET_STATUS_LABEL = {
+  open: 'Open', assigned: 'Assigned', fix_pending_approval: 'Fix pending approval',
+  resolved: 'Resolved', rejected: 'Rejected',
+};
+
+function renderTicketCard(t){
+  const statusCls = esc(t.status);
+  const statusLabel = TICKET_STATUS_LABEL[t.status] || t.status;
+  let actions = '';
+  if (t.status === 'open') {
+    actions = `<input type="text" id="assignInput-${t.ticket_id}" placeholder="assign to (e.g. de-bronze)" value="de-bronze">
+      <button class="btn ghost" onclick="ticketAssign(${t.ticket_id})">Assign to Data Engineer</button>
+      <input type="text" id="rejectInput-${t.ticket_id}" placeholder="reason">
+      <button class="btn ghost" onclick="ticketReject(${t.ticket_id})">Reject</button>`;
+  } else if (t.status === 'assigned') {
+    actions = `<input type="text" id="fixInput-${t.ticket_id}" placeholder="describe the fix applied">
+      <button class="btn primary" onclick="ticketProposeFix(${t.ticket_id})">Propose fix</button>
+      <input type="text" id="rejectInput-${t.ticket_id}" placeholder="reason">
+      <button class="btn ghost" onclick="ticketReject(${t.ticket_id})">Reject</button>`;
+  } else if (t.status === 'fix_pending_approval') {
+    actions = `<span class="note">Awaiting G5 sign-off — start an Ops agent run to reach the gate.</span>
+      <input type="text" id="rejectInput-${t.ticket_id}" placeholder="reason">
+      <button class="btn ghost" onclick="ticketReject(${t.ticket_id})">Reject</button>`;
+  }
+  const note = t.resolution_note ? `<div class="ticket-meta">note: ${esc(t.resolution_note)}</div>` : '';
+  const resolvedBy = t.resolved_by ? `<div class="ticket-meta">by ${esc(t.resolved_by)} · ${timeAgo(t.resolved_at)}</div>` : '';
+  return `<div class="ticket-card">
+    <div class="ticket-top">
+      <span class="ticket-id">#${t.ticket_id}</span>
+      <span class="ticket-entity">${esc(t.phase)}.${esc(t.entity)}</span>
+      <span class="ticket-status ${statusCls}">${esc(statusLabel)}</span>
+    </div>
+    <div class="ticket-desc">${esc(t.description)}</div>
+    <div class="ticket-meta">${esc(t.issue_type)} · ${esc(t.severity)} · raised ${timeAgo(t.raised_at)}${t.assigned_to ? ' · assigned to ' + esc(t.assigned_to) : ''}</div>
+    ${note}${resolvedBy}
+    ${actions ? `<div class="ticket-actions">${actions}</div>` : ''}
+  </div>`;
+}
+
+async function loadTicketsUI(){
+  const host = document.getElementById('ticketList'); if (!host) return;
+  try {
+    const r = await api(`/api/tickets?target=${encodeURIComponent(currentTarget)}&domain=${encodeURIComponent(currentDomain)}`);
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    const j = await r.json();
+    host.innerHTML = j.tickets.length
+      ? j.tickets.map(renderTicketCard).join('')
+      : `<div class="empty-note">No tickets for ${esc(currentDomain)} yet — run a scan to check for real issues.</div>`;
+  } catch (e) {
+    host.innerHTML = `<div class="empty-note">Could not load tickets: ${esc(e.message)}</div>`;
+  }
+}
+window.loadTicketsUI = loadTicketsUI;
+
+async function scanForTicketsUI(){
+  const out = document.getElementById('ticketScanResult'); if (!out) return;
+  out.innerHTML = `<div class="empty-note">Scanning ${esc(currentDomain)}'s real test pack…</div>`;
+  try {
+    const fd = new FormData();
+    fd.append('domain', currentDomain);
+    fd.append('target', currentTarget);
+    const r = await api('/api/tickets/scan', {method:'POST', body:fd});
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    const j = await r.json();
+    out.innerHTML = j.newly_raised.length
+      ? `<div class="conn-result ok">Raised ${j.newly_raised.length} new ticket(s): ${j.newly_raised.map(id=>'#'+id).join(', ')}</div>`
+      : `<div class="conn-result ok">Scan complete — no new issues (${j.already_ticketed || 0} already tracked).</div>`;
+    await loadTicketsUI();
+    await reloadJourney();
+  } catch (e) {
+    out.innerHTML = `<div class="conn-result bad">Scan failed: ${esc(e.message)}</div>`;
+  }
+}
+window.scanForTicketsUI = scanForTicketsUI;
+
+async function ticketAssign(id){
+  const input = document.getElementById(`assignInput-${id}`);
+  const to = (input ? input.value : '').trim();
+  if (!to) { input && input.focus(); return; }
+  const r = await api('/api/tickets/assign', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({domain: currentDomain, target: currentTarget, ticket_id: id, assigned_to: to})});
+  if (!r.ok) { alert('Could not assign: ' + (await r.json()).detail); return; }
+  await loadTicketsUI(); await reloadJourney();
+}
+window.ticketAssign = ticketAssign;
+
+async function ticketProposeFix(id){
+  const input = document.getElementById(`fixInput-${id}`);
+  const note = (input ? input.value : '').trim();
+  if (!note) { input && input.focus(); return; }
+  const r = await api('/api/tickets/propose-fix', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({domain: currentDomain, target: currentTarget, ticket_id: id, resolution_note: note})});
+  if (!r.ok) { alert('Could not propose fix: ' + (await r.json()).detail); return; }
+  await loadTicketsUI(); await reloadJourney();
+}
+window.ticketProposeFix = ticketProposeFix;
+
+async function ticketReject(id){
+  const input = document.getElementById(`rejectInput-${id}`);
+  const reason = (input ? input.value : '').trim();
+  if (!reason) { input && input.focus(); return; }
+  const r = await api('/api/tickets/reject', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({domain: currentDomain, target: currentTarget, ticket_id: id, reason: reason})});
+  if (!r.ok) { alert('Could not reject: ' + (await r.json()).detail); return; }
+  await loadTicketsUI(); await reloadJourney();
+}
+window.ticketReject = ticketReject;
 
 /* ============================== intent + gap analysis (step 02) ============================== */
 function parsePipeLines(text, fields){

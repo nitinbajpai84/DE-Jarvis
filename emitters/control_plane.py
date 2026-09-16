@@ -136,6 +136,26 @@ create table if not exists {control}.sdlc_run (
     started_by                     varchar
 );
 
+create table if not exists {control}.incident_ticket (
+    ticket_id         bigint primary key,
+    domain             varchar,
+    client              varchar,
+    phase                varchar,   -- 'bronze' | 'silver' | 'gold'
+    entity                varchar,   -- source_id / dimension / fact / mart the issue is about
+    issue_type             varchar,   -- 'quarantine' | 'dq_failure' | 'orphan_fk' | 'test_pack_failure'
+    severity                 varchar,   -- 'warning' | 'error'
+    description               varchar,
+    status                     varchar,   -- 'open' | 'assigned' | 'fix_pending_approval' |
+                                            -- 'resolved' | 'rejected' | 'closed'
+    assigned_to                  varchar,   -- agent name, e.g. 'de-silver'
+    raised_by                      varchar,
+    raised_at                        timestamp,
+    resolution_note                    varchar,
+    resolved_by                          varchar,
+    resolved_at                            timestamp,
+    verified_by_test                        boolean
+);
+
 create table if not exists {control}.sdlc_stage_run (
     id                bigint primary key,
     run_id             varchar,
@@ -172,6 +192,26 @@ _MIGRATIONS: list[tuple[str, str, str, str | None]] = [
 
 
 def ensure_control_schema(con: SqlConnection, control_schema: str) -> None:
+    # Called at the top of nearly every control-plane read/write, so on a page load that fires
+    # a dozen API calls in parallel (the Control Room does exactly this), several land here at
+    # once. DuckDB is single-writer -- a "create table if not exists" or "alter table" racing
+    # another connection's DDL raises TransactionException ("write-write conflict"), confirmed
+    # live via the Operations screen's concurrent /api/tickets + /api/agent-runs/* calls, not
+    # theoretical. Same retry-on-conflict pattern already proven for log_sdlc_stage/raise_ticket:
+    # the DDL is idempotent, so re-running it after another connection's commit is always safe.
+    import random
+    import time
+    for attempt in range(5):
+        try:
+            _ensure_control_schema_once(con, control_schema)
+            return
+        except Exception:  # noqa: BLE001 -- retry on a concurrent-DDL conflict; re-raise otherwise
+            if attempt == 4:
+                raise
+            time.sleep(0.02 * (attempt + 1) + random.random() * 0.03)
+
+
+def _ensure_control_schema_once(con: SqlConnection, control_schema: str) -> None:
     # SqlConnection.execute() takes one statement at a time (Databricks' connector rejects
     # more than one per call) -- split the template rather than relying on either driver to
     # handle a semicolon-joined batch.
@@ -266,6 +306,49 @@ def log_sdlc_stage(
             if attempt == 4:
                 raise
             time.sleep(0.02 * (attempt + 1) + random.random() * 0.03)
+
+
+def raise_ticket(
+    con: SqlConnection, control_schema: str, *, domain: str, client: str, phase: str,
+    entity: str, issue_type: str, severity: str, description: str, raised_by: str,
+) -> int:
+    """One control.incident_ticket row -- the Ops Manager's real, trackable record of a
+    detected issue, as opposed to a Slack message that scrolls away. Same retry-on-conflict
+    pattern as log_sdlc_stage's ID assignment (proven necessary by a real Phase C bug, not
+    theoretical): an Ops Manager tick and a human clicking "raise ticket" in the Control Room
+    can land close enough together to read the same max(ticket_id) before either commits."""
+    import random
+    import time
+    now = datetime.now(timezone.utc)
+    for attempt in range(5):
+        try:
+            ticket_id = con.execute(
+                f"select coalesce(max(ticket_id), 0) + 1 from {control_schema}.incident_ticket"
+            ).fetchone()[0]
+            con.execute(
+                f"insert into {control_schema}.incident_ticket values "
+                f"(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [ticket_id, domain, client, phase, entity, issue_type, severity, description,
+                 "open", None, raised_by, now, None, None, None, None],
+            )
+            return ticket_id
+        except Exception:  # noqa: BLE001 -- retry on a concurrent-insert conflict; re-raise otherwise
+            if attempt == 4:
+                raise
+            time.sleep(0.02 * (attempt + 1) + random.random() * 0.03)
+
+
+def update_ticket(con: SqlConnection, control_schema: str, ticket_id: int, **fields) -> None:
+    """Generic field updater for one ticket -- status transitions (raise -> assign ->
+    fix_pending_approval -> resolved/rejected -> closed) all go through this rather than a
+    separate function per transition, since every transition is "set some columns, same row."""
+    if not fields:
+        return
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    con.execute(
+        f"update {control_schema}.incident_ticket set {set_clause} where ticket_id = ?",
+        [*fields.values(), ticket_id],
+    )
 
 
 def compile_source_registration(
