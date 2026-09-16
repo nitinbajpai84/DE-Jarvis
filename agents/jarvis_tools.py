@@ -33,7 +33,7 @@ from langchain_core.tools import tool
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from emitters import intake_compiler, intent as intent_mod, profiler  # noqa: E402
+from emitters import architecture as architecture_mod, intake_compiler, intent as intent_mod, profiler  # noqa: E402
 from emitters.control_plane import ensure_control_schema, log_sdlc_stage  # noqa: E402
 from emitters.sql_dialect import connect as sql_connect, resolve_schema  # noqa: E402
 
@@ -225,6 +225,68 @@ def run_gap_analysis(domain: str, run_id: str) -> str:
     return _json(report)
 
 
+# ---------------------------------------------------------------------------------------
+# Step 02 architecture (agent 2, Solution Architect). Ungated, same reasoning as capture_intent
+# -- recording a decision, not writing to contracts/ or landing data. See
+# emitters/architecture.py for the real capture + consistency-check logic.
+# ---------------------------------------------------------------------------------------
+
+@tool
+def capture_architecture(domain: str, client: str, architecture_json: str, run_id: str,
+                          captured_by: str = "solution-architect") -> str:
+    """Records the architecture decisions for this domain: RTO/RPO, platform binding, the
+    layering rationale, per-entity SCD strategy, volume expectations, and risks with their
+    mitigations. Overwrites any prior architecture record for this domain -- a revision should
+    show exactly what was submitted, not a silent merge with a stale draft. architecture_json
+    is a JSON object:
+    {"rto": str, "rpo": str, "platform_binding": "duckdb"|"databricks",
+     "layering_rationale": str, "volume_expectations": str,
+     "entity_scd": [{"entity": str, "scd_type": "scd1"|"scd2"|"transaction"}],
+     "risks": [{"risk": str, "mitigation": str}]}
+    Persisted to contracts/architecture/<domain>/architecture.yaml. This does NOT judge whether
+    an RTO/RPO is reasonable -- that's a call for the human reviewing it, not this tool.
+
+    Args:
+        domain: the domain this architecture belongs to
+        client: the client/tenant (default 'default')
+        architecture_json: JSON-encoded architecture record, shape above
+        run_id: the sdlc_run id this action belongs to
+        captured_by: who captured this -- e.g. the agent's own name or "human"
+    """
+    import json as _json_mod
+    arch_dict = _json_mod.loads(architecture_json)
+    path = architecture_mod.capture_architecture(domain, client, arch_dict, captured_by)
+    _log("duckdb", domain, run_id, "specify", "solution-architect", "completed",
+         f"architecture captured for domain={domain!r}: "
+         f"platform={arch_dict.get('platform_binding')!r}, "
+         f"{len(arch_dict.get('entity_scd') or [])} entit(y/ies) covered")
+    return _json({"ok": True, "path": str(path)})
+
+
+@tool
+def check_architecture_consistency(workbook_path: str, run_id: str) -> str:
+    """Read-only preview of what write_intake_contracts (G2) will check at Freeze: compiles the
+    workbook (writes nothing) and compares any captured architecture record against what this
+    exact compile would produce. Call this any time after capture_architecture to see issues
+    before attempting Freeze, not just discover them when a real gated run refuses.
+
+    Args:
+        workbook_path: path to the filled-in intake .xlsx
+        run_id: the sdlc_run id this action belongs to
+    """
+    spec, errors = intake_compiler.compile_workbook(pathlib.Path(workbook_path))
+    if errors:
+        return _json({"ok": False, "errors": errors})
+    compiled = intake_compiler.spec_to_contracts(spec)
+    domain = spec["project"]["domain"]
+    result = architecture_mod.check_consistency(domain, spec, compiled["model"])
+    _log("duckdb", domain, run_id, "specify", "solution-architect",
+         "completed" if not result["issues"] else "failed",
+         f"architecture consistency check for domain={domain!r}: {len(result['issues'])} issue(s)"
+         if result["architecture_captured"] else f"architecture consistency check: no record captured")
+    return _json(result)
+
+
 @tool
 def compile_intake_preview(workbook_path: str, run_id: str, domain_hint: str = "unknown") -> str:
     """Preview-compile the intake workbook: validates it against contracts/schema/
@@ -274,6 +336,12 @@ def write_intake_contracts(workbook_path: str, run_id: str) -> str:
     this call actually runs, and only resumes once a human approves. If compile_intake_preview
     hasn't already been called and reviewed, call it first.
 
+    Also re-checks architecture consistency (see emitters/architecture.py) if an architecture
+    record exists for this domain, and REFUSES even after approval if the declared platform
+    binding or any entity's declared SCD strategy disagrees with what this exact compile is
+    about to produce -- the same "re-derive, don't trust a stale click" rule accept_catalogue
+    (G1) already applies to gap analysis. A domain with no architecture record is unaffected.
+
     Args:
         workbook_path: path to the filled-in intake .xlsx
         run_id: the sdlc_run id this action belongs to
@@ -283,10 +351,32 @@ def write_intake_contracts(workbook_path: str, run_id: str) -> str:
         return _json({"ok": False, "errors": errors})
     compiled = intake_compiler.spec_to_contracts(spec)
     domain = spec["project"]["domain"]
+
+    consistency = architecture_mod.check_consistency(domain, spec, compiled["model"])
+    if consistency["architecture_captured"] and consistency["issues"]:
+        _log("duckdb", domain, run_id, "freeze", "human+system", "failed",
+             f"G2 refused: architecture consistency found {len(consistency['issues'])} issue(s)")
+        return _json({"ok": False, "gate": "G2", "refused": True, "architecture_check": consistency,
+                      "reason": "G2 cannot pass while the architecture record disagrees with what "
+                                "this compile is about to produce. Resolve the mismatch or update "
+                                "the architecture record."})
+
     written = intake_compiler.write_contracts(spec, compiled)
+    arch_summary = (
+        f"Architecture: platform_binding consistent, {len(consistency['issues'])} issues -- 0 open"
+        if consistency["architecture_captured"] else "No architecture record for this domain yet"
+    )
+    record = _write_gate_record(
+        "G2", "Freeze", run_id, domain,
+        approved=[f"Domain: {domain}", f"Contract files written: {len(written)}", arch_summary],
+        sections="## Rollback\nContracts are versioned in git; the prior state is the last commit "
+                 "touching contracts/ for this domain.\n",
+    )
     _log("duckdb", domain, run_id, "freeze", "human+system", "completed",
-         f"wrote {len(written)} contract files for domain={domain!r}")
-    return _json({"ok": True, "domain": domain, "written": [str(p) for p in written]})
+         f"wrote {len(written)} contract files for domain={domain!r}, "
+         f"architecture {'consistent' if consistency['architecture_captured'] else 'n/a'}")
+    return _json({"ok": True, "domain": domain, "written": [str(p) for p in written],
+                  "architecture_check": consistency, "record": str(record)})
 
 
 @tool
@@ -678,6 +768,7 @@ def _json(obj: Any) -> str:
 
 ALL_TOOLS = [test_source_connection, profile_source,
              capture_intent, run_gap_analysis,
+             capture_architecture, check_architecture_consistency,
              compile_intake_preview, write_intake_contracts, run_bronze_source,
              run_silver_domain, run_gold_domain, run_regression_tests,
              accept_catalogue, gather_validation_pack, accept_validation,

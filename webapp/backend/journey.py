@@ -78,6 +78,7 @@ def _observed(step_id: str, domain: str, target: str) -> dict[str, Any] | None:
         }
 
     if step_id == "catalogue":
+        from emitters.architecture import load_architecture
         from emitters.intent import load_intent, run_gap_analysis
         model = REPO_ROOT / "contracts" / "models" / f"{domain}.model.yaml"
         gold = REPO_ROOT / "contracts" / "semantics" / f"{domain}.gold.yaml"
@@ -85,7 +86,8 @@ def _observed(step_id: str, domain: str, target: str) -> dict[str, Any] | None:
         return {"source_contracts": len(_source_contracts(domain)),
                 "model_contract": model.exists(), "gold_contract": gold.exists(),
                 "intent_captured": load_intent(domain) is not None,
-                "gap_open_count": gaps["open_count"] if gaps["intent_captured"] else None}
+                "gap_open_count": gaps["open_count"] if gaps["intent_captured"] else None,
+                "architecture_captured": load_architecture(domain) is not None}
 
     if step_id == "build":
         flow = pipeline.pipeline_flow(target, domain)

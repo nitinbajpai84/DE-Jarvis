@@ -1,0 +1,21 @@
+domain: asset_management
+client: default
+rto: 4 hours
+rpo: 24 hours
+platform_binding: duckdb
+layering_rationale: Bronze lands raw files as-is, silver conforms SCD1 dims (portfolios,
+  instruments are slowly-changing reference data), gold aggregates position-level
+  facts into portfolio-value marts for reporting.
+volume_expectations: Low volume today (<100 portfolios, <500 instruments), daily batch
+  load, expected to stay well under DuckDB single-node limits for the foreseeable
+  future.
+entity_scd:
+- entity: dim_awm_portfolio
+  scd_type: scd1
+- entity: dim_awm_instrument
+  scd_type: scd1
+risks:
+- risk: Late-arriving positions after the daily cutoff
+  mitigation: Reprocess the prior business day on the next run; idempotent by design
+captured_by: human
+captured_at: '2026-09-16T09:57:36.962526+00:00'

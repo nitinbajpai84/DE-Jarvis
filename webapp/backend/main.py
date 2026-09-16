@@ -34,7 +34,7 @@ if _env_path.exists():
             _k, _v = _line.split("=", 1)
             os.environ.setdefault(_k.strip(), _v.strip())
 
-from webapp.backend import agent_runs, discovery, intent, journey, pipeline, sdlc, uploads  # noqa: E402
+from webapp.backend import agent_runs, architecture, discovery, intent, journey, pipeline, sdlc, uploads  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
 app = FastAPI(title="Jarvis Control Room")
@@ -179,6 +179,36 @@ def api_intent_post(body: IntentRequest):
 @app.get("/api/intent/gap-analysis")
 def api_gap_analysis(domain: str = pipeline.DEFAULT_DOMAIN):
     return intent.run_gap_analysis(domain)
+
+
+class ArchitectureRequest(BaseModel):
+    domain: str
+    client: str = "default"
+    architecture: dict
+    captured_by: str = "human"
+
+
+class ArchitectureCheckRequest(BaseModel):
+    domain: str
+    workbook_path: str
+
+
+@app.get("/api/architecture")
+def api_architecture_get(domain: str = pipeline.DEFAULT_DOMAIN):
+    return {"domain": domain, "architecture": architecture.load_architecture(domain)}
+
+
+@app.post("/api/architecture")
+def api_architecture_post(body: ArchitectureRequest):
+    return architecture.capture_architecture(body.domain, body.client, body.architecture, body.captured_by)
+
+
+@app.post("/api/architecture/check")
+def api_architecture_check(body: ArchitectureCheckRequest):
+    result = architecture.check_consistency(body.domain, body.workbook_path)
+    if not result.get("ok", True) and "errors" in result:
+        raise HTTPException(status_code=400, detail=result["errors"])
+    return result
 
 
 @app.get("/api/journey")

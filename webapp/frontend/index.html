@@ -265,6 +265,12 @@
   .conflict-row{padding:9px 11px;border-radius:8px;background:rgba(234,91,87,.07);margin-bottom:8px;font-size:12px;}
   .conflict-row .term{font-weight:600;color:var(--text-primary);}
   .conflict-row ul{margin:5px 0 0;padding-left:18px;color:var(--text-secondary);}
+
+  .issue-row{display:flex;gap:10px;align-items:baseline;padding:9px 11px;border-radius:8px;
+             background:rgba(234,91,87,.07);margin-bottom:6px;font-size:12px;}
+  .issue-row .ikind{font-family:'IBM Plex Mono';font-size:10px;color:var(--critical);text-transform:uppercase;
+                    flex:none;width:120px;}
+  .issue-row .idetail{color:var(--text-secondary);}
   .footnote{font-size:11.5px;color:var(--text-muted);line-height:1.6;padding-top:6px;}
   .footnote b{color:var(--text-secondary);}
 
@@ -623,6 +629,7 @@ function renderScreen(){
         <div class="stat"><b>${o.gold_contract ? '✓' : '—'}</b><span>gold model</span></div>
         <div class="stat"><b>${o.intent_captured ? '✓' : '—'}</b><span>intent captured</span></div>
         <div class="stat"><b style="font-size:16px;line-height:2.1;${(o.gap_open_count||0) ? 'color:var(--critical)' : ''}">${gapBadge}</b><span>gap analysis</span></div>
+        <div class="stat"><b>${o.architecture_captured ? '✓' : '—'}</b><span>architecture captured</span></div>
       </div>
     </div>
     <div class="panel">
@@ -651,6 +658,31 @@ active portfolio | has an open position as of the reporting date | investments t
     <div class="panel">
       <div class="panel-head"><h3>Gap analysis</h3><span class="note">Recomputed fresh every run — never trusted from a stale file</span></div>
       <div id="gapResults"><div class="empty-note">Run gap analysis to see results here.</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Architecture</h3>
+        <span class="note">RTO/RPO, layering, platform binding, per-entity SCD strategy — checked against this compile at G2</span></div>
+      <div class="intent-form">
+        <div class="intent-row">
+          <label>RTO — recovery time objective<input id="archRto" placeholder="4 hours"></label>
+          <label>RPO — recovery point objective<input id="archRpo" placeholder="24 hours"></label>
+        </div>
+        <label>Platform binding
+          <select id="archPlatform"><option value="duckdb">duckdb</option><option value="databricks">databricks</option></select>
+        </label>
+        <label>Layering rationale<textarea id="archRationale" placeholder="Why bronze/silver/gold this way — what conforms where, and why"></textarea></label>
+        <label>Volume expectations<textarea id="archVolume" placeholder="Expected row counts, growth, batch vs. streaming"></textarea></label>
+        <label>Per-entity SCD strategy<textarea id="archScd" placeholder="One per line: entity | scd_type
+dim_awm_portfolio | scd1"></textarea></label>
+        <div class="intent-help">Checked against contracts/models/${esc(currentDomain)}.model.yaml at Freeze — a mismatch refuses G2.</div>
+        <label>Risks &amp; mitigations<textarea id="archRisks" placeholder="One per line: risk | mitigation"></textarea></label>
+      </div>
+      <div class="conn-actions">
+        <button class="btn primary" onclick="saveArchitecture()">Save architecture</button>
+        <button class="btn ghost" onclick="checkArchitectureUI()">Check consistency</button>
+      </div>
+      <div id="archResult"></div>
+      <div id="archIssues" style="margin-top:11px;"></div>
     </div>
     <div class="panel">
       <div class="panel-head"><h3>Contract intake</h3>
@@ -706,7 +738,7 @@ active portfolio | has an open position as of the reporting date | investments t
      that number does not exist yet.</div>`;
 
   if (s.id === 'catalogue') {
-    wireDropzone(); loadUploads(); loadIntentForm();
+    wireDropzone(); loadUploads(); loadIntentForm(); loadArchitectureForm();
     if (o.intent_captured) runGapAnalysisUI();
   }
   if (s.id === 'build') { refreshFlow(); loadAgentRuns(); }
@@ -980,6 +1012,84 @@ async function runGapAnalysisUI(){
 }
 window.runGapAnalysisUI = runGapAnalysisUI;
 
+/* ============================== architecture (step 02) ============================== */
+async function loadArchitectureForm(){
+  try {
+    const r = await api(`/api/architecture?domain=${encodeURIComponent(currentDomain)}`);
+    const j = await r.json();
+    const a = j.architecture;
+    document.getElementById('archRto').value = a ? a.rto || '' : '';
+    document.getElementById('archRpo').value = a ? a.rpo || '' : '';
+    document.getElementById('archPlatform').value = a ? a.platform_binding || 'duckdb' : 'duckdb';
+    document.getElementById('archRationale').value = a ? a.layering_rationale || '' : '';
+    document.getElementById('archVolume').value = a ? a.volume_expectations || '' : '';
+    document.getElementById('archScd').value = a ? formatPipeLines(a.entity_scd, ['entity','scd_type']) : '';
+    document.getElementById('archRisks').value = a ? formatPipeLines(a.risks, ['risk','mitigation']) : '';
+  } catch (e) {
+    document.getElementById('archResult').innerHTML = `<div class="conn-result bad">Could not load architecture: ${esc(e.message)}</div>`;
+  }
+}
+
+function buildArchitecturePayload(){
+  return {
+    rto: document.getElementById('archRto').value.trim(),
+    rpo: document.getElementById('archRpo').value.trim(),
+    platform_binding: document.getElementById('archPlatform').value,
+    layering_rationale: document.getElementById('archRationale').value.trim(),
+    volume_expectations: document.getElementById('archVolume').value.trim(),
+    entity_scd: parsePipeLines(document.getElementById('archScd').value, ['entity','scd_type']),
+    risks: parsePipeLines(document.getElementById('archRisks').value, ['risk','mitigation']),
+  };
+}
+
+async function saveArchitecture(){
+  const el = document.getElementById('archResult');
+  el.innerHTML = `<div class="conn-result">Saving…</div>`;
+  try {
+    const r = await api('/api/architecture', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({domain: currentDomain, client: 'default', architecture: buildArchitecturePayload(), captured_by: 'human'})});
+    const j = await r.json();
+    if (!r.ok) { el.innerHTML = `<div class="conn-result bad">✕ ${esc(j.detail || 'save failed')}</div>`; return; }
+    el.innerHTML = `<div class="conn-result ok">✓ Architecture saved for ${esc(currentDomain)}</div>`;
+    await refreshJourneyDataQuietly();
+  } catch (e) {
+    el.innerHTML = `<div class="conn-result bad">✕ ${esc(e.message)}</div>`;
+  }
+}
+window.saveArchitecture = saveArchitecture;
+
+async function checkArchitectureUI(){
+  const el = document.getElementById('archResult');
+  const issuesEl = document.getElementById('archIssues');
+  if (!latestUploadPath) {
+    el.innerHTML = `<div class="conn-result bad">Upload an intake workbook below first — the check compares architecture against what that exact compile would produce.</div>`;
+    return;
+  }
+  el.innerHTML = `<div class="conn-result">Checking…</div>`;
+  issuesEl.innerHTML = '';
+  try {
+    const r = await api('/api/architecture/check', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({domain: currentDomain, workbook_path: latestUploadPath})});
+    const report = await r.json();
+    if (!r.ok) { el.innerHTML = `<div class="conn-result bad">✕ ${esc((report.detail||[]).join('; ') || 'check failed')}</div>`; return; }
+    if (!report.architecture_captured) {
+      el.innerHTML = `<div class="conn-result bad">No architecture record yet — save one above first.</div>`;
+      return;
+    }
+    if (!report.issues.length) {
+      el.innerHTML = `<div class="conn-result ok">✓ Architecture is consistent with this compile — 0 issues</div>`;
+    } else {
+      el.innerHTML = `<div class="conn-result bad">✕ ${report.issues.length} issue(s) found — this is exactly what G2 checks at Freeze</div>`;
+      issuesEl.innerHTML = report.issues.map(i => `<div class="issue-row">
+        <span class="ikind">${esc(i.kind)}</span><span class="idetail">${esc(i.detail)}</span>
+      </div>`).join('');
+    }
+  } catch (e) {
+    el.innerHTML = `<div class="conn-result bad">✕ ${esc(e.message)}</div>`;
+  }
+}
+window.checkArchitectureUI = checkArchitectureUI;
+
 /* ============================== uploads ============================== */
 function wireDropzone(){
   const dropzone = document.getElementById('dropzone');
@@ -1001,9 +1111,12 @@ async function uploadFile(file){
   await loadUploads();
 }
 
+let latestUploadPath = null;
+
 async function loadUploads(){
   const el = document.getElementById('uploadList'); if (!el) return;
   const r = await api('/api/uploads'); const j = await r.json();
+  latestUploadPath = j.uploads.length ? j.uploads[0].stored_path : null;
   if (!j.uploads.length) { el.innerHTML = `<div class="empty-note">No catalogues uploaded yet.</div>`; return; }
   el.innerHTML = j.uploads.map(u => {
     const previewOk = u.preview && u.preview.ok;
