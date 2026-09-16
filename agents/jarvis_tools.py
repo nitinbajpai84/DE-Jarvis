@@ -33,7 +33,7 @@ from langchain_core.tools import tool
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from emitters import intake_compiler, profiler  # noqa: E402
+from emitters import intake_compiler, intent as intent_mod, profiler  # noqa: E402
 from emitters.control_plane import ensure_control_schema, log_sdlc_stage  # noqa: E402
 from emitters.sql_dialect import connect as sql_connect, resolve_schema  # noqa: E402
 
@@ -162,6 +162,67 @@ def profile_source(connection_json: str, source_id: str, domain: str, run_id: st
         _log("duckdb", domain, run_id, "discover", "business-analyst", "failed",
              f"profile {source_id} failed: {exc}")
         return _json.dumps({"ok": False, "error": str(exc)})
+
+
+# ---------------------------------------------------------------------------------------
+# Step 02 intent + gap analysis (agent 3 PM captures intent, agent 1 BA runs the gap check).
+# Both ungated, same reasoning as the Step 01 discovery tools -- neither writes to contracts/
+# or lands data, so there's nothing yet for a human to approve. See emitters/intent.py.
+# ---------------------------------------------------------------------------------------
+
+@tool
+def capture_intent(domain: str, client: str, intent_json: str, run_id: str,
+                    captured_by: str = "program-manager") -> str:
+    """Records what the customer is actually building this for: business outcome, SLAs, the
+    reports it feeds (each with the data points it needs), definition of done, and any business
+    term whose definition differs across their systems. Overwrites any prior intent record for
+    this domain -- a human revising intent should see exactly what they submitted, not a silent
+    merge with a stale draft. intent_json is a JSON object:
+    {"business_outcome": str, "definition_of_done": str,
+     "sla": {"freshness": str, "availability": str},
+     "reports": [{"name": str, "description": str, "consumers": [str],
+                  "required_data_points": [str]}],
+     "definitions": [{"term": str, "definition": str, "source": str}],
+     "stakeholders": [{"name": str, "role": str}]}
+    Persisted to contracts/intent/<domain>/intent.yaml.
+
+    Args:
+        domain: the domain this intent belongs to
+        client: the client/tenant (default 'default')
+        intent_json: JSON-encoded intent record, shape above
+        run_id: the sdlc_run id this action belongs to
+        captured_by: who captured this -- a free-text label for the gate record, e.g. the
+            agent's own name or "human" if a person filled the form directly
+    """
+    import json as _json_mod
+    intent_dict = _json_mod.loads(intent_json)
+    path = intent_mod.capture_intent(domain, client, intent_dict, captured_by)
+    _log("duckdb", domain, run_id, "specify", "program-manager", "completed",
+         f"intent captured for domain={domain!r}: "
+         f"{len(intent_dict.get('reports') or [])} report(s), "
+         f"{len(intent_dict.get('definitions') or [])} definition(s)")
+    return _json({"ok": True, "path": str(path)})
+
+
+@tool
+def run_gap_analysis(domain: str, run_id: str) -> str:
+    """Checks the captured intent against every column this platform actually knows about for
+    this domain -- approved contracts AND Step 01 discovery profiles. EXACT name matching only,
+    case-insensitive: this never guesses that two different-looking names mean the same thing.
+    A required data point that matches no known column is an open gap. A business term defined
+    more than once with different wording is an open conflict. Call capture_intent first --
+    if no intent exists yet, this reports intent_captured: false rather than an error.
+
+    Args:
+        domain: the domain to check
+        run_id: the sdlc_run id this action belongs to
+    """
+    report = intent_mod.run_gap_analysis(domain)
+    _log("duckdb", domain, run_id, "specify", "business-analyst",
+         "completed" if not report["open_count"] else "failed",
+         f"gap analysis for domain={domain!r}: {report['open_count']} open item(s)"
+         if report["intent_captured"] else f"gap analysis for domain={domain!r}: no intent captured")
+    return _json(report)
 
 
 @tool
@@ -376,9 +437,14 @@ def _evidence_path(run_id: str, kind: str) -> pathlib.Path:
 def accept_catalogue(workbook_path: str, run_id: str) -> str:
     """G1 GATE -- records the customer's acceptance of the compiled catalogue and intent.
     Pauses for human approval before it runs. Recompiles the workbook itself to check G1's
-    blocking rule (open questions must be EMPTY) rather than trusting a summary, and REFUSES
-    even after approval if any open question remains -- an unanswered ambiguity is a blocker,
-    not a note. Writes evidence/gates/<run>-G1.md on success.
+    blocking rule (open questions must be EMPTY) rather than trusting a summary, and also
+    re-runs gap analysis fresh (see emitters/intent.py) -- REFUSES even after approval if any
+    open question remains, OR if intent has been captured for this domain and gap analysis
+    finds an unresolved data-point gap or a definition conflict. An unanswered ambiguity is a
+    blocker, not a note, whether the compiler found it or gap analysis did. If intent was never
+    captured for this domain, that's not a failure -- intent capture is additive, not required,
+    so a domain with no intent record passes on catalogue completeness alone, same as before
+    this existed. Writes evidence/gates/<run>-G1.md on success.
 
     Args:
         workbook_path: path to the filled-in intake .xlsx that was previewed
@@ -397,6 +463,20 @@ def accept_catalogue(workbook_path: str, run_id: str) -> str:
         return _json({"ok": False, "gate": "G1", "refused": True, "open_questions": open_qs,
                       "reason": "G1 cannot pass while open questions remain. Resolve them in the "
                                 "workbook and re-preview."})
+
+    gaps = intent_mod.run_gap_analysis(domain)
+    if gaps["intent_captured"] and gaps["open_count"]:
+        _log("duckdb", domain, run_id, "freeze", "human+system", "failed",
+             f"G1 refused: gap analysis found {gaps['open_count']} unresolved item(s)")
+        return _json({"ok": False, "gate": "G1", "refused": True, "gap_analysis": gaps,
+                      "reason": "G1 cannot pass while gap analysis has open data-point gaps or "
+                                "definition conflicts. Resolve them or update the intent."})
+
+    intent_summary = (
+        f"Intent captured: business outcome recorded, {len(gaps['data_point_gaps'])} data "
+        f"point(s) checked against known sources, 0 open"
+        if gaps["intent_captured"] else "No intent record for this domain yet"
+    )
     record = _write_gate_record(
         "G1", "Catalogue & intent", run_id, domain,
         approved=[
@@ -405,12 +485,14 @@ def accept_catalogue(workbook_path: str, run_id: str) -> str:
             f"Dimensions: {', '.join(d['name'] for d in compiled['model']['dimensions']) or 'none'}",
             f"Facts: {', '.join(f['name'] for f in compiled['model']['facts']) or 'none'}",
             f"Gold marts: {', '.join(m['name'] for m in compiled['gold']['marts']) or 'none'}",
+            intent_summary,
         ],
         sections="## Open Questions status\nAll closed?  YES\n",
     )
     _log("duckdb", domain, run_id, "freeze", "human+system", "completed",
-         f"G1 accepted: catalogue for domain={domain!r}, 0 open questions")
-    return _json({"ok": True, "gate": "G1", "domain": domain, "record": str(record)})
+         f"G1 accepted: catalogue for domain={domain!r}, 0 open questions, "
+         f"gap analysis {'clean' if gaps['intent_captured'] else 'n/a'}")
+    return _json({"ok": True, "gate": "G1", "domain": domain, "record": str(record), "gap_analysis": gaps})
 
 
 @tool
@@ -595,6 +677,7 @@ def _json(obj: Any) -> str:
 
 
 ALL_TOOLS = [test_source_connection, profile_source,
+             capture_intent, run_gap_analysis,
              compile_intake_preview, write_intake_contracts, run_bronze_source,
              run_silver_domain, run_gold_domain, run_regression_tests,
              accept_catalogue, gather_validation_pack, accept_validation,

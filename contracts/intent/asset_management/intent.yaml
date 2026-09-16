@@ -1,0 +1,25 @@
+domain: asset_management
+client: default
+business_outcome: Give the investments team a daily view of portfolio value and holdings
+  across all managed portfolios.
+definition_of_done: Daily AUM dashboard live, refreshed by 07:00, reconciled against
+  the source of truth within 1%.
+sla:
+  freshness: daily by 07:00
+  availability: 99% during business hours
+reports:
+- name: Portfolio Value Dashboard
+  description: Daily AUM per portfolio, by instrument holding
+  required_data_points:
+  - portfolio_code
+  - portfolio_type
+  - market_value
+  - instrument_code
+  - quantity
+definitions:
+- term: active portfolio
+  definition: has at least one open position as of the reporting date
+  source: investments team
+stakeholders: []
+captured_by: human
+captured_at: '2026-09-16T09:47:04.622328+00:00'

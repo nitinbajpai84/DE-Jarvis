@@ -53,8 +53,9 @@ JOURNEY = [
         "step": 2, "id": "catalogue", "name": "Catalogue & intent",
         "tagline": "The catalogue is agreed, the intent and SLAs are captured, the architecture is signed.",
         "agents": [1, 2, 3], "capability": "partial",
-        "gap": "The catalogue compiles for real from an uploaded workbook; the agent does not yet draft it, "
-               "and intent/gap-analysis/architecture are not captured.",
+        "gap": "The catalogue compiles for real from an uploaded workbook; intent capture and gap analysis "
+               "are real and enforced at G1. What's still missing: the agent doesn't yet draft the catalogue "
+               "itself, and there's no architecture document (RTO/RPO, layering) or its own sign-off.",
     },
     {
         "step": 3, "id": "build", "name": "Data engineering",
@@ -95,7 +96,9 @@ GATES = [
         "id": "G1", "step": 2, "name": "Catalogue & intent",
         "approves": "Domain, target platform, schemas, every mapped source, and the business intent.",
         "prep": "compile_intake_preview", "tool": "accept_catalogue", "capability": "live",
-        "rule": "Open questions must be empty. An unanswered ambiguity is a blocker, not a note.",
+        "rule": "Open questions must be empty, and (where intent has been captured) gap analysis "
+                "must show 0 open data-point gaps or definition conflicts. An unanswered "
+                "ambiguity is a blocker, not a note.",
     },
     {
         "id": "G2", "step": 2, "name": "Freeze",

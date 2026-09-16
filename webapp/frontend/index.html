@@ -242,6 +242,29 @@
   .coltable .key{display:inline-block;margin-left:6px;font-size:9px;padding:1px 6px;border-radius:20px;
                  background:rgba(240,193,90,.15);color:var(--gold);font-weight:600;}
   .coltable .samples{font-family:'IBM Plex Mono';font-size:10.5px;color:var(--text-muted);}
+
+  /* ---------------- intent (step 02) ---------------- */
+  .intent-form{display:flex;flex-direction:column;gap:12px;}
+  .intent-form label{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--text-muted);
+                     text-transform:uppercase;letter-spacing:.4px;}
+  .intent-form input,.intent-form textarea{background:var(--bg-panel-2);border:1px solid var(--border);
+                     color:var(--text-primary);font-size:12.5px;padding:9px 10px;border-radius:8px;
+                     font-family:inherit;resize:vertical;}
+  .intent-form textarea{min-height:64px;}
+  .intent-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  @media (max-width:640px){.intent-row{grid-template-columns:1fr;}}
+  .intent-help{font-size:10.5px;color:var(--text-muted);margin-top:-2px;}
+  .gap-row{display:flex;gap:10px;align-items:baseline;padding:8px 10px;border-radius:8px;font-size:12px;margin-bottom:6px;}
+  .gap-row.resolved{background:rgba(63,192,122,.06);}
+  .gap-row.open{background:rgba(234,91,87,.07);}
+  .gap-row .gst{font-family:'IBM Plex Mono';font-size:10px;font-weight:600;text-transform:uppercase;width:60px;flex:none;}
+  .gap-row.resolved .gst{color:var(--good);}
+  .gap-row.open .gst{color:var(--critical);}
+  .gap-row .gname{color:var(--text-primary);font-weight:600;font-family:'IBM Plex Mono';}
+  .gap-row .gwhere{color:var(--text-muted);font-size:11px;}
+  .conflict-row{padding:9px 11px;border-radius:8px;background:rgba(234,91,87,.07);margin-bottom:8px;font-size:12px;}
+  .conflict-row .term{font-weight:600;color:var(--text-primary);}
+  .conflict-row ul{margin:5px 0 0;padding-left:18px;color:var(--text-secondary);}
   .footnote{font-size:11.5px;color:var(--text-muted);line-height:1.6;padding-top:6px;}
   .footnote b{color:var(--text-secondary);}
 
@@ -590,14 +613,44 @@ function renderScreen(){
   }
 
   else if (s.id === 'catalogue') {
+    const gapBadge = o.gap_open_count === null || o.gap_open_count === undefined
+      ? '—' : (o.gap_open_count === 0 ? '✓ 0 open' : `${o.gap_open_count} open`);
     body = `<div class="panel">
       <div class="panel-head"><h3>Catalogue state</h3><span class="note">Compiled contracts on disk for ${esc(currentDomain)}</span></div>
       <div class="stats">
         <div class="stat"><b>${fmtNum(o.source_contracts)}</b><span>source contracts</span></div>
         <div class="stat"><b>${o.model_contract ? '✓' : '—'}</b><span>silver model</span></div>
         <div class="stat"><b>${o.gold_contract ? '✓' : '—'}</b><span>gold model</span></div>
-        <div class="stat muted"><b>—</b><span>intent captured</span></div>
+        <div class="stat"><b>${o.intent_captured ? '✓' : '—'}</b><span>intent captured</span></div>
+        <div class="stat"><b style="font-size:16px;line-height:2.1;${(o.gap_open_count||0) ? 'color:var(--critical)' : ''}">${gapBadge}</b><span>gap analysis</span></div>
       </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Intent</h3>
+        <span class="note">What this platform is actually for — captured once per domain, checked at G1</span></div>
+      <div class="intent-form">
+        <label>Business outcome<textarea id="intentOutcome" placeholder="Why this platform — the business problem it solves"></textarea></label>
+        <label>Definition of done<textarea id="intentDoD" placeholder="What 'done' measurably looks like"></textarea></label>
+        <div class="intent-row">
+          <label>SLA — freshness<input id="intentFreshness" placeholder="daily by 07:00"></label>
+          <label>SLA — availability<input id="intentAvailability" placeholder="99% business hours"></label>
+        </div>
+        <label>Reports this feeds<textarea id="intentReports" placeholder="One per line: name | description | required data points, comma-separated
+Portfolio Value Dashboard | Daily AUM per portfolio | portfolio_code, market_value, as_of_date"></textarea></label>
+        <div class="intent-help">Data points are matched by exact column name against contracted + discovered sources — no guessing at synonyms.</div>
+        <label>Business term definitions<textarea id="intentDefinitions" placeholder="One per line: term | definition | source
+active portfolio | has an open position as of the reporting date | investments team"></textarea></label>
+        <div class="intent-help">The same term defined twice with different wording is flagged as an open conflict at G1.</div>
+      </div>
+      <div class="conn-actions">
+        <button class="btn primary" onclick="saveIntent()">Save intent</button>
+        <button class="btn ghost" onclick="runGapAnalysisUI()">Run gap analysis</button>
+      </div>
+      <div id="intentResult"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Gap analysis</h3><span class="note">Recomputed fresh every run — never trusted from a stale file</span></div>
+      <div id="gapResults"><div class="empty-note">Run gap analysis to see results here.</div></div>
     </div>
     <div class="panel">
       <div class="panel-head"><h3>Contract intake</h3>
@@ -652,7 +705,10 @@ function renderScreen(){
      tables, the control plane, or the contracts on disk. A dash means the capability that would produce
      that number does not exist yet.</div>`;
 
-  if (s.id === 'catalogue') { wireDropzone(); loadUploads(); }
+  if (s.id === 'catalogue') {
+    wireDropzone(); loadUploads(); loadIntentForm();
+    if (o.intent_captured) runGapAnalysisUI();
+  }
   if (s.id === 'build') { refreshFlow(); loadAgentRuns(); }
   if (s.id === 'operate') { refreshAlerts(); }
   if (s.id === 'sources') { renderConnFields(); loadProfiles(); }
@@ -827,6 +883,102 @@ async function refreshAlerts(){
     feed.innerHTML = `<div class="empty-note">Could not load alerts: ${esc(e.message)}</div>`;
   }
 }
+
+/* ============================== intent + gap analysis (step 02) ============================== */
+function parsePipeLines(text, fields){
+  // "name | description | a, b, c" per line -> [{field1, field2, field3: [a,b,c]}], blank lines skipped.
+  return (text || '').split('\n').map(l => l.trim()).filter(Boolean).map(line => {
+    const parts = line.split('|').map(p => p.trim());
+    const obj = {};
+    fields.forEach((f, i) => { obj[f] = parts[i] || ''; });
+    return obj;
+  });
+}
+function formatPipeLines(items, fields){
+  return (items || []).map(it => fields.map(f => Array.isArray(it[f]) ? it[f].join(', ') : (it[f]||'')).join(' | ')).join('\n');
+}
+
+async function loadIntentForm(){
+  try {
+    const r = await api(`/api/intent?domain=${encodeURIComponent(currentDomain)}`);
+    const j = await r.json();
+    const it = j.intent;
+    document.getElementById('intentOutcome').value = it ? it.business_outcome || '' : '';
+    document.getElementById('intentDoD').value = it ? it.definition_of_done || '' : '';
+    document.getElementById('intentFreshness').value = it && it.sla ? it.sla.freshness || '' : '';
+    document.getElementById('intentAvailability').value = it && it.sla ? it.sla.availability || '' : '';
+    document.getElementById('intentReports').value = it ? formatPipeLines(
+      (it.reports||[]).map(r => ({...r, required_data_points: r.required_data_points})),
+      ['name','description','required_data_points']) : '';
+    document.getElementById('intentDefinitions').value = it ? formatPipeLines(it.definitions, ['term','definition','source']) : '';
+  } catch (e) {
+    document.getElementById('intentResult').innerHTML = `<div class="conn-result bad">Could not load intent: ${esc(e.message)}</div>`;
+  }
+}
+
+function buildIntentPayload(){
+  const reports = parsePipeLines(document.getElementById('intentReports').value, ['name','description','required_data_points'])
+    .map(r => ({...r, required_data_points: (r.required_data_points||'').split(',').map(x=>x.trim()).filter(Boolean)}));
+  const definitions = parsePipeLines(document.getElementById('intentDefinitions').value, ['term','definition','source']);
+  return {
+    business_outcome: document.getElementById('intentOutcome').value.trim(),
+    definition_of_done: document.getElementById('intentDoD').value.trim(),
+    sla: {freshness: document.getElementById('intentFreshness').value.trim(),
+          availability: document.getElementById('intentAvailability').value.trim()},
+    reports, definitions, stakeholders: [],
+  };
+}
+
+async function saveIntent(){
+  const el = document.getElementById('intentResult');
+  el.innerHTML = `<div class="conn-result">Saving…</div>`;
+  try {
+    const r = await api('/api/intent', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({domain: currentDomain, client: 'default', intent: buildIntentPayload(), captured_by: 'human'})});
+    const j = await r.json();
+    if (!r.ok) { el.innerHTML = `<div class="conn-result bad">✕ ${esc(j.detail || 'save failed')}</div>`; return; }
+    el.innerHTML = `<div class="conn-result ok">✓ Intent saved for ${esc(currentDomain)}</div>`;
+    await refreshJourneyDataQuietly();
+    await runGapAnalysisUI();
+  } catch (e) {
+    el.innerHTML = `<div class="conn-result bad">✕ ${esc(e.message)}</div>`;
+  }
+}
+window.saveIntent = saveIntent;
+
+function gapResultsHtml(report){
+  if (!report.intent_captured) return `<div class="empty-note">No intent captured yet for ${esc(currentDomain)} — save one above first.</div>`;
+  const gapRows = (report.data_point_gaps||[]).map(g => `<div class="gap-row ${g.status}">
+    <span class="gst">${g.status === 'resolved' ? '✓ found' : '✕ open'}</span>
+    <span class="gname">${esc(g.data_point)}</span>
+    <span class="gwhere">${esc(g.report)}${g.found_in.length ? ' — found in ' + g.found_in.map(esc).join(', ') : ' — not found in any known source'}</span>
+  </div>`).join('') || `<div class="empty-note">No reports declared required data points yet.</div>`;
+  const conflictRows = (report.definition_conflicts||[]).map(c => `<div class="conflict-row">
+    <span class="term">${esc(c.term)}</span> has ${c.definitions.length} different definitions:
+    <ul>${c.definitions.map(d => `<li>"${esc(d.definition)}"${d.source ? ' — ' + esc(d.source) : ''}</li>`).join('')}</ul>
+  </div>`).join('');
+  return `<div style="margin-bottom:14px;">
+      <b style="color:${report.open_count ? 'var(--critical)' : 'var(--good)'};font-family:'IBM Plex Mono';font-size:13px;">
+        ${report.open_count} open item${report.open_count===1?'':'s'}
+      </b>
+      <span class="empty-note" style="padding:0;margin-left:8px;">— this is exactly what G1 checks at Freeze approval</span>
+    </div>
+    ${gapRows}${conflictRows}`;
+}
+
+async function runGapAnalysisUI(){
+  const el = document.getElementById('gapResults');
+  el.innerHTML = `<div class="empty-note">Checking…</div>`;
+  try {
+    const r = await api(`/api/intent/gap-analysis?domain=${encodeURIComponent(currentDomain)}`);
+    const report = await r.json();
+    el.innerHTML = gapResultsHtml(report);
+    await refreshJourneyDataQuietly();
+  } catch (e) {
+    el.innerHTML = `<div class="empty-note">Could not run gap analysis: ${esc(e.message)}</div>`;
+  }
+}
+window.runGapAnalysisUI = runGapAnalysisUI;
 
 /* ============================== uploads ============================== */
 function wireDropzone(){

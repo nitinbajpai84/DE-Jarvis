@@ -34,7 +34,7 @@ if _env_path.exists():
             _k, _v = _line.split("=", 1)
             os.environ.setdefault(_k.strip(), _v.strip())
 
-from webapp.backend import agent_runs, discovery, journey, pipeline, sdlc, uploads  # noqa: E402
+from webapp.backend import agent_runs, discovery, intent, journey, pipeline, sdlc, uploads  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
 app = FastAPI(title="Jarvis Control Room")
@@ -157,6 +157,28 @@ def api_discovery_profile(body: ProfileRequest):
 @app.get("/api/discovery")
 def api_discovery_list(domain: str = pipeline.DEFAULT_DOMAIN):
     return {"domain": domain, "profiles": discovery.list_profiles(domain)}
+
+
+class IntentRequest(BaseModel):
+    domain: str
+    client: str = "default"
+    intent: dict
+    captured_by: str = "human"
+
+
+@app.get("/api/intent")
+def api_intent_get(domain: str = pipeline.DEFAULT_DOMAIN):
+    return {"domain": domain, "intent": intent.load_intent(domain)}
+
+
+@app.post("/api/intent")
+def api_intent_post(body: IntentRequest):
+    return intent.capture_intent(body.domain, body.client, body.intent, body.captured_by)
+
+
+@app.get("/api/intent/gap-analysis")
+def api_gap_analysis(domain: str = pipeline.DEFAULT_DOMAIN):
+    return intent.run_gap_analysis(domain)
 
 
 @app.get("/api/journey")

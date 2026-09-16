@@ -22,3 +22,4 @@ webapp/uploads/
 
 harness/_uv*.log
 contracts/discovery/
+contracts/intent/*/gap_analysis.json
