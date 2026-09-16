@@ -481,17 +481,15 @@ def run(source_id: str, target: str = "duckdb", domain: str | None = None) -> di
             _stage_rows(con, bronze, source_id, schema, batch, run_id, data_catalogue_id)
             batch_ok = _eval_quality_rules(con, control, bronze, source_id, contract.get("quality_rules", []), run_id, data_catalogue_id, domain, client)
 
-            con.execute(
-                f"insert into {control}.file_audit values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [file_audit_id, run_id, batch.name, batch.location, batch.size_kb, len(batch.rows),
-                 len(batch.header), batch.checksum, arrival_time, True, "loaded" if batch_ok else "quarantined", domain, client],
-            )
-            con.execute(
-                f"insert into {control}.data_object_catalogue values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [data_catalogue_id, source_id, batch.name, batch.location, len(batch.rows), batch.size_kb,
-                 batch.checksum, arrival_time, "loaded" if batch_ok else "quarantined", domain, client],
-            )
-
+            # The real data move happens BEFORE file_audit is marked 'loaded', not after. Under
+            # Databricks each con.execute() is its own network round trip with no surrounding
+            # transaction, so a connection drop between "mark loaded" and "actually move the
+            # rows" is a real risk, not theoretical -- reproduced live during Phase 2's
+            # insurance reload: file_audit said customers_1.csv was 'loaded' (4900 rows) while
+            # bronze.customers held 0 of them, and because the idempotency check above only
+            # looks at file_audit, a retry silently skipped the file forever instead of
+            # reprocessing it. Doing the insert first means a crash before file_audit is written
+            # leaves the file looking not-yet-loaded, so a retry correctly redoes it.
             if batch_ok:
                 cols = ", ".join(["data_catalogue_id", "source_record_id", "_run_id", "_source_file",
                                    "_ingested_at", "_record_hash"] + [f'"{c["name"]}"' for c in schema])
@@ -505,6 +503,17 @@ def run(source_id: str, target: str = "duckdb", domain: str | None = None) -> di
             else:
                 _quarantine_batch(batch, files, quarantine_dir)
                 counts["files_quarantined"] += 1
+
+            con.execute(
+                f"insert into {control}.file_audit values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [file_audit_id, run_id, batch.name, batch.location, batch.size_kb, len(batch.rows),
+                 len(batch.header), batch.checksum, arrival_time, True, "loaded" if batch_ok else "quarantined", domain, client],
+            )
+            con.execute(
+                f"insert into {control}.data_object_catalogue values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [data_catalogue_id, source_id, batch.name, batch.location, len(batch.rows), batch.size_kb,
+                 batch.checksum, arrival_time, "loaded" if batch_ok else "quarantined", domain, client],
+            )
 
         con.execute(f"drop table if exists {bronze}._staging_{source_id}")
         status = "completed"
