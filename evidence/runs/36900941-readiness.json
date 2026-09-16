@@ -1,0 +1,48 @@
+{
+  "domain": "asset_management",
+  "target": "duckdb",
+  "sources": [
+    "awm_instruments",
+    "awm_portfolios",
+    "awm_positions"
+  ],
+  "steps": [
+    {
+      "step": "bronze:awm_instruments",
+      "ok": true
+    },
+    {
+      "step": "bronze:awm_portfolios",
+      "ok": true
+    },
+    {
+      "step": "bronze:awm_positions",
+      "ok": true
+    },
+    {
+      "step": "silver",
+      "ok": true
+    },
+    {
+      "step": "gold",
+      "ok": true
+    }
+  ],
+  "failures": [],
+  "ready": true,
+  "layers": {
+    "bronze": {
+      "tables": 3,
+      "rows": 48
+    },
+    "silver": {
+      "tables": 3,
+      "rows": 48
+    },
+    "gold": {
+      "tables": 1,
+      "rows": 6
+    }
+  },
+  "checked_at": "2026-09-16T22:42:34.153569+00:00"
+}

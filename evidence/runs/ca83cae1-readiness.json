@@ -1,0 +1,83 @@
+{
+  "domain": "insurance",
+  "target": "duckdb",
+  "sources": [
+    "addresses",
+    "agents",
+    "claims",
+    "customers",
+    "parties",
+    "payments",
+    "policies",
+    "policy_coverages",
+    "premiums",
+    "products"
+  ],
+  "steps": [
+    {
+      "step": "bronze:addresses",
+      "ok": true
+    },
+    {
+      "step": "bronze:agents",
+      "ok": true
+    },
+    {
+      "step": "bronze:claims",
+      "ok": true
+    },
+    {
+      "step": "bronze:customers",
+      "ok": true
+    },
+    {
+      "step": "bronze:parties",
+      "ok": true
+    },
+    {
+      "step": "bronze:payments",
+      "ok": true
+    },
+    {
+      "step": "bronze:policies",
+      "ok": true
+    },
+    {
+      "step": "bronze:policy_coverages",
+      "ok": true
+    },
+    {
+      "step": "bronze:premiums",
+      "ok": true
+    },
+    {
+      "step": "bronze:products",
+      "ok": true
+    },
+    {
+      "step": "silver",
+      "ok": true
+    },
+    {
+      "step": "gold",
+      "ok": true
+    }
+  ],
+  "failures": [],
+  "ready": true,
+  "layers": {
+    "bronze": {
+      "tables": 10,
+      "rows": 42160
+    },
+    "silver": {
+      "tables": 10,
+      "rows": 41489
+    },
+    "gold": {
+      "tables": 4,
+      "rows": 118
+    }
+  },
+  "checked_at": "2026-09-16T22:42:33.322907+00:00"
+}
