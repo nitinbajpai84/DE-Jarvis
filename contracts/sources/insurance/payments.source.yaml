@@ -1,14 +1,15 @@
 # ----------------------------------------------------------------------
-# S005  products  (file)
+# S009  payments  (file)
 # ----------------------------------------------------------------------
 $schema: jarvis/source/v1
-source_id: products
+source_id: payments
 domain: insurance
+client: default
 owner: data-eng@example.com
 classification: internal
 connection:
   type: file
-  path: harness/landing/products/products_*.csv
+  path: harness/landing/payments/payments_*.csv
   format: csv
   delimiter: ','
   header: true
@@ -19,48 +20,68 @@ arrival:
 load:
   strategy: append
   primary_key:
-  - product_id
+  - payment_id
 schema:
-- name: product_id
+- name: payment_id
   type: string
   nullable: false
   description: Natural key
-- name: product_code
+- name: policy_id
   type: string
   nullable: false
-- name: product_name
+  description: FK to policies
+- name: customer_id
   type: string
   nullable: false
-- name: line_of_business
+  description: FK to customers
+  pii: true
+- name: payment_date
+  type: date
+  nullable: false
+  format: '%Y-%m-%d'
+- name: payment_status
   type: string
   nullable: false
-  description: auto|home|life|health|commercial
-- name: product_family
+  description: scheduled|paid|failed|reversed|refunded|past_due
+- name: payment_method
   type: string
+  nullable: true
+  description: card|ach|check|cash|wire|payroll|other
+- name: billed_amount
+  type: decimal
   nullable: false
-- name: product_component_type
-  type: string
-  nullable: false
-  description: base|rider
-- name: active_flag
-  type: bool
+- name: paid_amount
+  type: decimal
   nullable: false
 file_checks:
-  min_rows: 10
-  expected_columns: 7
+  min_rows: 100
+  expected_columns: 8
   row_count_deviation_pct: 40
   reject_on_schema_drift: true
-  quarantine_path: harness/quarantine/products/
+  quarantine_path: harness/quarantine/payments/
 quality_rules:
 - rule: not_null
   columns:
-  - product_id
-  - product_code
+  - payment_id
+  - policy_id
+  - customer_id
   severity: error
 - rule: unique
   columns:
-  - product_id
+  - payment_id
   severity: error
+- rule: accepted_values
+  columns:
+  - payment_status
+  severity: warn
+  params:
+    values:
+    - scheduled
+    - paid
+    - failed
+    - reversed
+    - refunded
+    - past_due
 sla:
   freshness_hours: 24
   completeness_pct: 99

@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis Control Room</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#080B12; --bg-panel:#0E1420; --bg-panel-2:#131A28; --bg-raised:#182031;
+    --border:#212A3B; --border-soft:#1A2233;
+    --text-primary:#E9EEF6; --text-secondary:#9AA8C0; --text-muted:#5B6880;
+    --accent:#2FE0C6; --accent-dim:rgba(47,224,198,.14);
+    --bronze:#CF8A4E; --silver:#A8B7CC; --gold:#F0C15A;
+    --good:#3FC07A; --warning:#E3AC3E; --serious:#E2793D; --critical:#EA5B57;
+    --shadow:0 20px 60px -20px rgba(0,0,0,.6);
+  }
+  *{box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text-primary);font-family:'IBM Plex Sans',system-ui,sans-serif;
+       margin:0;padding:28px 20px 60px;-webkit-font-smoothing:antialiased;}
+  h1,h2,h3{font-family:'Sora',system-ui,sans-serif;text-wrap:balance;margin:0;}
+  .mono{font-family:'IBM Plex Mono',ui-monospace,monospace;}
+  .wrap{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:22px;}
+  button{font-family:inherit;}
+
+  .header{display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between;
+          padding-bottom:18px;border-bottom:1px solid var(--border-soft);}
+  .brand{display:flex;align-items:center;gap:14px;}
+  .mark{width:42px;height:42px;flex:none;}
+  .brand-text h1{font-size:22px;font-weight:700;letter-spacing:.2px;}
+  .brand-text .sub{font-size:12.5px;color:var(--text-muted);margin-top:2px;}
+  .header-right{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+  select#target,select#domain{
+    background:var(--bg-panel-2);border:1px solid var(--border);color:var(--text-primary);
+    font-size:12.5px;padding:7px 12px;border-radius:20px;font-family:inherit;cursor:pointer;
+  }
+  .conn-pills{display:flex;gap:8px;}
+  .pill{display:flex;align-items:center;gap:6px;padding:6px 11px;border-radius:20px;
+        background:var(--bg-panel-2);border:1px solid var(--border);font-size:12px;color:var(--text-secondary);}
+  .pill .dot{width:7px;height:7px;border-radius:50%;background:var(--good);box-shadow:0 0 8px var(--good);}
+  .pill.err .dot{background:var(--critical);box-shadow:0 0 8px var(--critical);}
+  .live-badge{display:flex;align-items:center;gap:7px;padding:6px 12px;border-radius:20px;
+              background:rgba(47,224,198,.1);border:1px solid rgba(47,224,198,.35);
+              color:var(--accent);font-size:11.5px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;}
+  .live-badge .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:blink 1.6s infinite;}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+
+  .panel{background:var(--bg-panel);border:1px solid var(--border);border-radius:16px;
+         padding:22px 22px 24px;box-shadow:var(--shadow);}
+  .panel-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:18px;flex-wrap:wrap;}
+  .panel-head h2{font-size:16px;font-weight:700;}
+  .panel-head .eyebrow{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:4px;display:block;}
+  .panel-head .note{font-size:12.5px;color:var(--text-muted);}
+
+  .flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:0;align-items:stretch;}
+  @media (max-width:820px){.flow{grid-template-columns:1fr;gap:14px;} .flow .arrow{display:none;}}
+  .layer-card{background:var(--bg-panel-2);border:1px solid var(--border);border-radius:14px;padding:18px;
+              display:flex;flex-direction:column;gap:12px;position:relative;overflow:hidden;}
+  .layer-card::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--layer-color);}
+  .layer-top{display:flex;justify-content:space-between;align-items:center;}
+  .layer-name{font-family:'Sora';font-weight:700;font-size:15px;color:var(--layer-color);letter-spacing:.3px;}
+  .layer-status{font-size:10.5px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;padding:3px 9px;border-radius:20px;}
+  .layer-status.healthy{background:rgba(63,192,122,.12);color:var(--good);}
+  .layer-status.empty{background:rgba(91,104,128,.16);color:var(--text-muted);}
+  .layer-status.attention{background:rgba(234,91,87,.14);color:var(--critical);}
+  .layer-stats{display:flex;gap:18px;}
+  .layer-stats .stat b{display:block;font-family:'IBM Plex Mono';font-size:19px;font-weight:600;}
+  .layer-stats .stat span{font-size:10.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;}
+  .layer-tables{display:flex;flex-wrap:wrap;gap:5px;margin-top:2px;}
+  .tchip{font-family:'IBM Plex Mono';font-size:10px;padding:3px 7px;border-radius:6px;background:var(--bg-raised);color:var(--text-secondary);border:1px solid var(--border-soft);}
+  .tchip.err{color:var(--critical);border-color:rgba(234,91,87,.3);}
+  .layer-sub{font-size:10.5px;color:var(--text-muted);}
+  .arrow{display:flex;align-items:center;justify-content:center;padding:0 6px;position:relative;}
+  .arrow svg{width:34px;height:18px;}
+
+  .sdlc-track{display:flex;gap:0;overflow-x:auto;padding:6px 2px 14px;scrollbar-width:thin;}
+  .stage{flex:0 0 128px;display:flex;flex-direction:column;align-items:center;text-align:center;position:relative;padding:0 4px;cursor:default;}
+  .stage-connector{position:absolute;top:38px;left:-50%;width:100%;height:2px;background:var(--border);z-index:0;}
+  .stage:first-child .stage-connector{display:none;}
+  .stage.done .stage-connector{background:var(--good);}
+  .avatar-ring{width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+               background:var(--bg-panel-2);border:2px solid var(--border);position:relative;z-index:1;margin-bottom:10px;}
+  .stage.done .avatar-ring{border-color:var(--good);opacity:.55;}
+  .stage.active .avatar-ring{border-color:var(--role-color);opacity:1;
+              box-shadow:0 0 0 5px var(--role-glow),0 0 18px var(--role-glow);animation:pulse 1.8s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 4px var(--role-glow),0 0 14px var(--role-glow);}50%{box-shadow:0 0 0 8px transparent,0 0 26px var(--role-glow);}}
+  .stage-num{font-family:'IBM Plex Mono';font-size:10px;color:var(--text-muted);margin-bottom:3px;}
+  .stage-name{font-family:'Sora';font-size:12px;font-weight:600;line-height:1.25;min-height:30px;}
+  .stage-agent{font-size:10px;color:var(--text-muted);margin-top:3px;line-height:1.3;}
+  .gate-marker{flex:0 0 40px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding-top:20px;}
+  .gate-diamond{width:16px;height:16px;background:var(--bg-raised);border:2px solid var(--gold);transform:rotate(45deg);}
+  .gate-label{font-size:9px;color:var(--gold);margin-top:8px;writing-mode:vertical-rl;letter-spacing:1px;font-weight:600;}
+
+  .cols{display:grid;grid-template-columns:1.05fr .95fr;gap:22px;}
+  @media (max-width:900px){.cols{grid-template-columns:1fr;}}
+
+  .dropzone{border:1.5px dashed var(--border);border-radius:12px;padding:22px 18px;text-align:center;
+            background:var(--bg-panel-2);display:flex;flex-direction:column;align-items:center;gap:10px;cursor:pointer;transition:border-color .15s;}
+  .dropzone.drag{border-color:var(--accent);}
+  .dropzone svg{width:32px;height:32px;color:var(--text-muted);}
+  .dropzone .dz-title{font-size:13.5px;font-weight:600;}
+  .dropzone .dz-sub{font-size:11.5px;color:var(--text-muted);}
+  .kind-picker{display:flex;gap:8px;justify-content:center;margin-top:2px;}
+  .kind-btn{font-size:11px;padding:5px 12px;border-radius:20px;background:var(--bg-raised);border:1px solid var(--border-soft);
+            color:var(--text-secondary);cursor:pointer;}
+  .kind-btn.sel{background:var(--accent-dim);color:var(--accent);border-color:var(--accent);}
+
+  .upload-row{display:flex;align-items:flex-start;gap:12px;padding:11px 4px;border-bottom:1px solid var(--border-soft);}
+  .upload-row:last-child{border-bottom:none;}
+  .upload-icon{width:32px;height:32px;border-radius:8px;background:var(--bg-raised);display:flex;align-items:center;justify-content:center;flex:none;margin-top:1px;}
+  .upload-icon svg{width:16px;height:16px;color:var(--accent);}
+  .upload-meta{flex:1;min-width:0;}
+  .upload-meta .name{font-size:12.5px;font-weight:600;}
+  .upload-meta .sub{font-size:11px;color:var(--text-muted);margin-top:1px;}
+  .upload-meta pre{font-size:10.5px;max-height:140px;overflow:auto;background:var(--bg-raised);border:1px solid var(--border-soft);
+                    border-radius:8px;padding:8px 10px;margin:8px 0 0;white-space:pre-wrap;color:var(--text-secondary);}
+  .upload-actions{display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex:none;}
+  .status-chip{font-size:10px;font-weight:600;letter-spacing:.3px;padding:3px 9px;border-radius:20px;text-transform:uppercase;white-space:nowrap;}
+  .status-chip.compiled{background:rgba(63,192,122,.12);color:var(--good);}
+  .status-chip.review{background:rgba(227,172,62,.12);color:var(--warning);}
+  .status-chip.error{background:rgba(234,91,87,.12);color:var(--critical);}
+  .btn{font-size:12px;font-weight:600;padding:7px 13px;border-radius:8px;border:none;cursor:pointer;white-space:nowrap;}
+  .btn.primary{background:var(--accent);color:#04211D;}
+  .btn.primary:disabled{opacity:.4;cursor:not-allowed;}
+  .btn.ghost{background:transparent;color:var(--text-secondary);border:1px solid var(--border);}
+
+  .pbi-tile{border-radius:12px;overflow:hidden;border:1px solid var(--border);background:var(--bg-panel-2);}
+  .pbi-preview{height:120px;background:linear-gradient(135deg,rgba(47,224,198,.10),transparent 60%),
+      repeating-linear-gradient(90deg,var(--bg-raised) 0 1px,transparent 1px 42px),
+      repeating-linear-gradient(0deg,var(--bg-raised) 0 1px,transparent 1px 26px);
+      position:relative;display:flex;align-items:flex-end;gap:6px;padding:14px;}
+  .pbi-bar{width:16px;background:linear-gradient(180deg,var(--accent),rgba(47,224,198,.25));border-radius:3px 3px 0 0;}
+  .pbi-body{padding:14px 16px 16px;display:flex;justify-content:space-between;align-items:center;gap:10px;}
+  .pbi-body .t{font-size:13px;font-weight:600;}
+  .pbi-body .s{font-size:11px;color:var(--text-muted);margin-top:2px;}
+
+  .alert-feed{display:flex;flex-direction:column;gap:10px;margin-top:14px;}
+  .alert-item{display:flex;gap:10px;padding:11px 12px;border-radius:10px;background:var(--bg-panel-2);border:1px solid var(--border-soft);}
+  .alert-dot{width:8px;height:8px;border-radius:50%;flex:none;margin-top:5px;}
+  .alert-dot.ok{background:var(--good);box-shadow:0 0 6px var(--good);}
+  .alert-dot.fail{background:var(--critical);box-shadow:0 0 6px var(--critical);}
+  .alert-body .t{font-size:12.5px;font-weight:600;}
+  .alert-body .s{font-size:11px;color:var(--text-muted);margin-top:2px;font-family:'IBM Plex Mono';}
+  .empty-note{font-size:12px;color:var(--text-muted);padding:8px 2px;}
+
+  .footnote{font-size:11.5px;color:var(--text-muted);line-height:1.6;padding-top:4px;}
+  .footnote b{color:var(--text-secondary);}
+
+  .run-card{border:1px solid var(--border-soft);border-radius:12px;padding:14px 16px;background:var(--bg-panel-2);margin-bottom:10px;}
+  .run-card:last-child{margin-bottom:0;}
+  .run-top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
+  .run-title{font-family:'Sora';font-weight:600;font-size:13.5px;}
+  .run-sub{font-size:11px;color:var(--text-muted);margin-top:2px;font-family:'IBM Plex Mono';}
+  .run-status{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;padding:4px 10px;border-radius:20px;flex:none;}
+  .run-status.running,.run-status.starting,.run-status.resuming{background:rgba(47,224,198,.14);color:var(--accent);}
+  .run-status.awaiting_approval{background:rgba(227,172,62,.14);color:var(--warning);animation:pulseBadge 1.8s ease-in-out infinite;}
+  .run-status.completed{background:rgba(63,192,122,.12);color:var(--good);}
+  .run-status.failed,.run-status.rejected{background:rgba(234,91,87,.14);color:var(--critical);}
+  @keyframes pulseBadge{0%,100%{opacity:1}50%{opacity:.55}}
+  .run-stages{display:flex;flex-direction:column;gap:4px;margin-top:10px;}
+  .run-stage-row{font-size:11.5px;color:var(--text-secondary);display:flex;gap:8px;}
+  .run-stage-row .stage-name{font-family:'IBM Plex Mono';color:var(--text-muted);min-width:60px;}
+  .run-gate{margin-top:12px;padding:12px;border-radius:10px;background:rgba(227,172,62,.08);border:1px solid rgba(227,172,62,.3);}
+  .run-gate-title{font-size:12px;font-weight:700;color:var(--warning);margin-bottom:6px;}
+  .run-gate-args{font-family:'IBM Plex Mono';font-size:10.5px;color:var(--text-secondary);background:var(--bg-raised);border-radius:6px;padding:8px 10px;margin:6px 0;white-space:pre-wrap;word-break:break-all;}
+  .run-gate-actions{display:flex;gap:8px;margin-top:8px;}
+  .btn.reject{background:transparent;color:var(--critical);border:1px solid rgba(234,91,87,.4);}
+  input[type=file]{display:none;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="header">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 42 42" fill="none">
+        <circle cx="21" cy="21" r="20" stroke="#2FE0C6" stroke-width="1.4" opacity=".35"/>
+        <path d="M21 6 L33 13 V29 L21 36 L9 29 V13 Z" stroke="#2FE0C6" stroke-width="1.6" fill="rgba(47,224,198,.08)"/>
+        <circle cx="21" cy="21" r="5.5" fill="#2FE0C6"/>
+        <path d="M21 6V15M21 27V36M9 13L17 18M33 13L25 18M9 29L17 24M33 29L25 24" stroke="#2FE0C6" stroke-width="1.2" opacity=".55"/>
+      </svg>
+      <div class="brand-text">
+        <h1>Jarvis Control Room</h1>
+        <div class="sub">Agentic SDLC · Bronze → Silver → Gold · live status &amp; catalogue intake</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="live-badge"><span class="dot"></span>Live</div>
+      <select id="domain"></select>
+      <select id="target"></select>
+      <div class="conn-pills" id="connPills"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <div><span class="eyebrow">Live pipeline</span><h2>Medallion data flow</h2></div>
+      <div class="note">Live table counts + <span class="mono">control.run_registry</span> · refreshes every 20s · <span id="lastFlowUpdate"></span></div>
+    </div>
+    <div class="flow" id="flow"><div class="empty-note">Loading pipeline status…</div></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <div><span class="eyebrow">Agentic SDLC</span><h2>Stage evidence &amp; ownership</h2></div>
+      <div class="note">10 stages · 3 human gates · glow = most recently touched evidence on disk</div>
+    </div>
+    <div class="sdlc-track" id="track"><div class="empty-note">Loading SDLC status…</div></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <div><span class="eyebrow">Live agent runs</span><h2>Freeze gate</h2></div>
+      <div class="note">Real Gemini-driven runs against <span class="mono">agents/jarvis_tools.py</span> · <span class="mono">write_intake_contracts</span> pauses here for you</div>
+    </div>
+    <div id="agentRuns"><div class="empty-note">Loading…</div></div>
+  </div>
+
+  <div class="cols">
+    <div class="panel">
+      <div class="panel-head"><div><span class="eyebrow">Contract intake</span><h2>Upload a catalogue</h2></div></div>
+
+      <div class="dropzone" id="dropzone">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 15V4M12 4L7 9M12 4l5 5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3" stroke-linecap="round"/></svg>
+        <div class="dz-title">Drop the Jarvis intake workbook, or click to browse</div>
+        <div class="dz-sub">One workbook — sources, silver model and gold model. Runs the real compiler in preview mode first — nothing writes until you approve.</div>
+      </div>
+      <input type="file" id="fileInput" accept=".xlsx">
+
+      <div id="uploadList" style="margin-top:6px;"></div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:22px;">
+      <div class="panel">
+        <div class="panel-head"><div><span class="eyebrow">Adoption</span><h2>Power BI</h2></div></div>
+        <div class="pbi-tile">
+          <div class="pbi-preview">
+            <div class="pbi-bar" style="height:38%"></div><div class="pbi-bar" style="height:64%"></div>
+            <div class="pbi-bar" style="height:48%"></div><div class="pbi-bar" style="height:80%"></div>
+            <div class="pbi-bar" style="height:56%"></div><div class="pbi-bar" style="height:70%"></div>
+          </div>
+          <div class="pbi-body">
+            <div><div class="t">Book of Business — Insights</div><div class="s">Connected via Databricks SQL warehouse (jarvis catalog)</div></div>
+            <a class="btn primary" href="https://app.powerbi.com" target="_blank" rel="noopener">Open</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div><span class="eyebrow">Ops</span><h2>Alert feed</h2></div>
+          <a class="btn ghost" href="https://jarvis-ops-testing.slack.com/archives/C0C21CXLECC" target="_blank" rel="noopener">#all-jarvis-ops-testing ↗</a>
+        </div>
+        <div class="note" style="margin:-10px 0 4px;">Mirrored from <span class="mono">control.run_registry</span> — quarantine/failure events here are also posted live to that Slack channel by <span class="mono">harness/run_bronze.py</span></div>
+        <div class="alert-feed" id="alertFeed"><div class="empty-note">Loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footnote">
+    <b>This is the real thing.</b> Pipeline and SDLC panels read live from <span class="mono">control.run_registry</span> and the actual evidence files on disk. Uploads run the actual compiler (<span class="mono">emitters/intake_compiler.py</span>) in preview mode; nothing is written to <span class="mono">contracts/</span> until you click Approve.
+  </div>
+
+</div>
+
+<script>
+const AGENT_COLORS = {
+  "program-manager": "#2FE0C6", "business-analyst": "#4C8DFF",
+  "solution-architect": "#9B7FE8", "data-architect": "#E85FA0",
+  "de-bronze": "#CF8A4E", "de-silver": "#A8B7CC", "de-gold": "#F0C15A",
+  "test-manager": "#3FC07A", "reviewer": "#E2793D", "evidence-agent": "#5CC8E8",
+};
+function ownerColor(owner){
+  // "de-bronze / de-silver / de-gold" or "solution-architect + data-architect" -> first match
+  for (const key of Object.keys(AGENT_COLORS)) if (owner.includes(key)) return AGENT_COLORS[key];
+  return "#2FE0C6";
+}
+function hexToRgb(hex){ const v=hex.replace('#',''); return [parseInt(v.slice(0,2),16),parseInt(v.slice(2,4),16),parseInt(v.slice(4,6),16)]; }
+function botFace(color){
+  const [r,g,b]=hexToRgb(color);
+  return `<svg viewBox="0 0 64 64" width="40" height="40">
+    <rect x="15" y="20" width="34" height="28" rx="9" fill="none" stroke="${color}" stroke-width="2.2"/>
+    <line x1="32" y1="20" x2="32" y2="11" stroke="${color}" stroke-width="2"/>
+    <circle cx="32" cy="8" r="3.2" fill="${color}"/>
+    <circle cx="24.5" cy="34" r="3.6" fill="${color}"/><circle cx="39.5" cy="34" r="3.6" fill="${color}"/>
+    <path d="M24 43 Q32 48 40 43" stroke="${color}" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <line x1="9" y1="30" x2="15" y2="30" stroke="${color}" stroke-width="2"/>
+    <line x1="49" y1="30" x2="55" y2="30" stroke="${color}" stroke-width="2"/>
+  </svg>`;
+}
+function esc(s){ return (s??"").toString().replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function fmtNum(n){ return (n||0).toLocaleString(); }
+function timeAgo(iso){
+  if(!iso) return "no runs yet";
+  const s = (Date.now() - new Date(iso).getTime())/1000;
+  if (s < 60) return "just now";
+  if (s < 3600) return Math.floor(s/60)+"m ago";
+  if (s < 86400) return Math.floor(s/3600)+"h ago";
+  return Math.floor(s/86400)+"d ago";
+}
+
+let currentTarget = "duckdb";
+let currentDomain = "insurance";
+
+async function loadTargets(){
+  const r = await fetch('/api/targets'); const j = await r.json();
+  const sel = document.getElementById('target');
+  sel.innerHTML = j.targets.map(t => `<option value="${t}">${t}</option>`).join('');
+  if (j.targets.includes('duckdb')) sel.value = 'duckdb';
+  currentTarget = sel.value;
+  sel.addEventListener('change', () => { currentTarget = sel.value; refreshFlow(); refreshAlerts(); });
+}
+
+async function loadDomains(){
+  const r = await fetch('/api/domains'); const j = await r.json();
+  const sel = document.getElementById('domain');
+  sel.innerHTML = j.domains.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+  if (j.domains.includes('insurance')) sel.value = 'insurance';
+  currentDomain = sel.value;
+  sel.addEventListener('change', () => { currentDomain = sel.value; refreshFlow(); refreshAlerts(); });
+}
+
+const LAYER_META = {
+  bronze: {label:"Bronze", color:"var(--bronze)"},
+  silver: {label:"Silver", color:"var(--silver)"},
+  gold:   {label:"Gold",   color:"var(--gold)"},
+};
+const STATUS_LABEL = {failed:["attention","Attention"], active:["healthy","Healthy"], pending:["empty","No runs yet"]};
+
+function arrowSvg(){
+  return `<svg viewBox="0 0 34 18"><line x1="0" y1="9" x2="26" y2="9" stroke="var(--border)" stroke-width="2"/><path d="M22 4 L30 9 L22 14" stroke="var(--border)" stroke-width="2" fill="none"/></svg>`;
+}
+
+async function refreshFlow(){
+  const pillsEl = document.getElementById('connPills');
+  try {
+    const r = await fetch(`/api/pipeline/flow?target=${currentTarget}&domain=${encodeURIComponent(currentDomain)}`);
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    const j = await r.json();
+    pillsEl.innerHTML = `<div class="pill"><span class="dot"></span>${esc(currentTarget)}</div>`;
+    const order = ["bronze","silver","gold"];
+    let html = "";
+    order.forEach((phase, i) => {
+      const L = j.layers[phase], meta = LAYER_META[phase];
+      const [cls,label] = STATUS_LABEL[L.status] || ["empty","Unknown"];
+      html += `<div class="layer-card" style="--layer-color:${meta.color}">
+        <div class="layer-top"><span class="layer-name">${meta.label}</span><span class="layer-status ${cls}">${label}</span></div>
+        <div class="layer-stats">
+          <div class="stat"><b>${fmtNum(L.table_count)}</b><span>tables</span></div>
+          <div class="stat"><b>${fmtNum(L.columns)}</b><span>columns</span></div>
+          <div class="stat"><b>${fmtNum(L.rows)}</b><span>rows</span></div>
+        </div>
+        <div class="layer-tables">${
+          (L.tables.slice(0,4).map(t=>`<span class="tchip">${esc(t)}</span>`).join('')) +
+          (L.tables.length>4 ? `<span class="tchip">+${L.tables.length-4} more</span>` : "") +
+          (L.failed_tables.map(f=>`<span class="tchip err">✕ ${esc(f.source_id)}</span>`).join(''))
+        }</div>
+        <div class="layer-sub">last run: ${timeAgo(L.last_run_at)}</div>
+      </div>`;
+      if (i < order.length-1) html += `<div class="arrow">${arrowSvg()}</div>`;
+    });
+    document.getElementById('flow').innerHTML = html;
+    document.getElementById('lastFlowUpdate').textContent = "updated " + new Date().toLocaleTimeString();
+  } catch (e) {
+    pillsEl.innerHTML = `<div class="pill err"><span class="dot"></span>${esc(currentTarget)} unreachable</div>`;
+    document.getElementById('flow').innerHTML = `<div class="empty-note">Could not load pipeline status for "${esc(currentTarget)}": ${esc(e.message)}</div>`;
+  }
+}
+
+async function refreshAlerts(){
+  try {
+    const r = await fetch(`/api/alerts?target=${currentTarget}&domain=${encodeURIComponent(currentDomain)}`);
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    const j = await r.json();
+    const feed = document.getElementById('alertFeed');
+    const digest = j.latest_digest;
+    let html = "";
+    if (digest && digest.date) {
+      const parts = ["bronze","silver","gold"].map(p => `${digest.phases[p].tables} ${p}`).join(' · ');
+      html += `<div class="alert-item"><div class="alert-dot ok"></div><div class="alert-body">
+        <div class="t">Daily digest — ${esc(parts)}</div><div class="s">${esc(digest.date)} · ${esc(digest.target)}</div></div></div>`;
+    }
+    if (j.failures.length === 0 && !(digest && digest.date)) {
+      html = `<div class="empty-note">No failures or quarantines on record for ${esc(currentTarget)}.</div>`;
+    }
+    j.failures.forEach(f => {
+      html += `<div class="alert-item"><div class="alert-dot fail"></div><div class="alert-body">
+        <div class="t">${esc(f.phase)}.${esc(f.source_id)} — ${f.status==='failed' ? esc(f.error||'failed') : f.files_quarantined+' batch(es) quarantined'}</div>
+        <div class="s">${timeAgo(f.ended_at)}</div></div></div>`;
+    });
+    feed.innerHTML = html;
+  } catch (e) {
+    document.getElementById('alertFeed').innerHTML = `<div class="empty-note">Could not load alerts: ${esc(e.message)}</div>`;
+  }
+}
+
+async function loadSdlc(){
+  const r = await fetch('/api/sdlc'); const j = await r.json();
+  const track = document.getElementById('track');
+  let html = "";
+  j.stages.forEach((s, i) => {
+    const color = ownerColor(s.owner);
+    const [rr,gg,bb] = hexToRgb(color);
+    const glow = `rgba(${rr},${gg},${bb},.22)`;
+    const stateClass = s.n === j.active_stage ? "active" : (s.done ? "done" : "");
+    html += `<div class="stage ${stateClass}" style="--role-color:${color};--role-glow:${glow}" title="${esc(s.evidence.join('\n') || 'no evidence yet')}">
+      <div class="stage-connector"></div>
+      <div class="avatar-ring">${botFace(color)}</div>
+      <div class="stage-num">STAGE ${String(s.n).padStart(2,'0')}</div>
+      <div class="stage-name">${esc(s.name)}</div>
+      <div class="stage-agent">${esc(s.owner)}</div>
+    </div>`;
+    if (s.gate) html += `<div class="gate-marker"><div class="gate-diamond"></div><div class="gate-label">${esc(s.gate)}</div></div>`;
+  });
+  track.innerHTML = html;
+}
+
+// ---------------- uploads ----------------
+const selectedKind = "intake";  // one unified workbook -> one compiler, no picker needed
+
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+dropzone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) uploadFile(fileInput.files[0]); });
+['dragenter','dragover'].forEach(evt => dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.add('drag'); }));
+['dragleave','drop'].forEach(evt => dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.remove('drag'); }));
+dropzone.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) uploadFile(f); });
+
+async function uploadFile(file){
+  const fd = new FormData();
+  fd.append('kind', selectedKind);
+  fd.append('file', file);
+  const r = await fetch('/api/uploads', {method:'POST', body:fd});
+  if (!r.ok) { alert('Upload failed: ' + (await r.json()).detail); return; }
+  await loadUploads();
+}
+
+function uploadIconSvg(){
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 12l2 2 4-4M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`;
+}
+
+async function loadUploads(){
+  const r = await fetch('/api/uploads'); const j = await r.json();
+  const el = document.getElementById('uploadList');
+  if (j.uploads.length === 0) { el.innerHTML = `<div class="empty-note">No catalogues uploaded yet.</div>`; return; }
+  el.innerHTML = j.uploads.map(u => {
+    const previewOk = u.preview && u.preview.ok;
+    const chip = u.compiled ? `<div class="status-chip compiled">Compiled</div>`
+               : previewOk ? `<div class="status-chip review">Preview ready</div>`
+               : `<div class="status-chip error">Compile error</div>`;
+    const btn = u.compiled ? "" : (previewOk
+      ? `<button class="btn primary" onclick="approveUpload('${u.id}')">Approve &amp; write</button>
+         <button class="btn ghost" onclick="startAgentRun('${u.id}')" style="margin-top:6px;">Run via Agent</button>`
+      : `<button class="btn ghost" disabled>Fix &amp; re-upload</button>`);
+    const out = u.compiled ? (u.compile_result.stdout || u.compile_result.stderr) : (u.preview.stdout || u.preview.stderr);
+    return `<div class="upload-row">
+      <div class="upload-icon">${uploadIconSvg()}</div>
+      <div class="upload-meta">
+        <div class="name">${esc(u.filename)}</div>
+        <div class="sub">intake workbook · ${new Date(u.uploaded_at*1000).toLocaleString()}</div>
+        <pre>${esc((out||'').slice(-1500))}</pre>
+      </div>
+      <div class="upload-actions">${chip}${btn}</div>
+    </div>`;
+  }).join('');
+}
+
+async function approveUpload(id){
+  const r = await fetch(`/api/uploads/${id}/approve`, {method:'POST'});
+  if (!r.ok) { alert('Compile failed: ' + (await r.json()).detail); }
+  await loadUploads();
+  await loadSdlc();
+}
+window.approveUpload = approveUpload;
+
+// ---------------- agent runs ----------------
+async function startAgentRun(uploadId){
+  const fd = new FormData();
+  fd.append('upload_id', uploadId);
+  fd.append('domain_hint', 'unknown');
+  const r = await fetch('/api/agent-runs', {method:'POST', body:fd});
+  if (!r.ok) { alert('Could not start agent run: ' + (await r.json()).detail); return; }
+  await loadAgentRuns();
+}
+window.startAgentRun = startAgentRun;
+
+async function approveRun(runId){
+  const r = await fetch(`/api/agent-runs/${runId}/approve`, {method:'POST'});
+  if (!r.ok) { alert('Could not approve: ' + (await r.json()).detail); return; }
+  await loadAgentRuns();
+}
+window.approveRun = approveRun;
+
+async function rejectRun(runId){
+  const r = await fetch(`/api/agent-runs/${runId}/reject`, {method:'POST'});
+  if (!r.ok) { alert('Could not reject: ' + (await r.json()).detail); return; }
+  await loadAgentRuns();
+}
+window.rejectRun = rejectRun;
+
+function renderRunCard(run){
+  const started = new Date(run.started_at.replace(' ', 'T') + 'Z');
+  const stagesHtml = (run.stages || []).map(s =>
+    `<div class="run-stage-row"><span class="stage-name">${esc(s.stage)}</span><span>${esc(s.agent)} — ${esc(s.detail || s.status)}</span></div>`
+  ).join('') || `<div class="run-stage-row"><span>no stages logged yet</span></div>`;
+
+  let gateHtml = '';
+  if (run.status === 'awaiting_approval' && run.pending_action) {
+    const reqs = run.pending_action.action_requests || [];
+    gateHtml = reqs.map(req => `
+      <div class="run-gate">
+        <div class="run-gate-title">⏸ Paused at the Freeze gate — approval needed</div>
+        <div>Tool: <span class="mono">${esc(req.name)}</span></div>
+        <div class="run-gate-args">${esc(JSON.stringify(req.args, null, 2))}</div>
+        <div class="run-gate-actions">
+          <button class="btn primary" onclick="approveRun('${run.run_id}')">Approve — write contracts</button>
+          <button class="btn reject" onclick="rejectRun('${run.run_id}')">Reject</button>
+        </div>
+      </div>`).join('');
+  }
+
+  return `<div class="run-card">
+    <div class="run-top">
+      <div>
+        <div class="run-title">${esc(run.domain)} <span style="color:var(--text-muted);font-weight:400;">/ ${esc(run.client)}</span></div>
+        <div class="run-sub">${esc(run.run_id.slice(0,8))} · started ${started.toLocaleTimeString()} · ${esc(run.started_by)}</div>
+      </div>
+      <div class="run-status ${esc(run.status)}">${esc(run.status.replace('_',' '))}</div>
+    </div>
+    <div class="run-stages">${stagesHtml}</div>
+    ${gateHtml}
+  </div>`;
+}
+
+async function loadAgentRuns(){
+  const el = document.getElementById('agentRuns');
+  try {
+    const r = await fetch('/api/agent-runs');
+    const j = await r.json();
+    if (!j.runs.length) { el.innerHTML = `<div class="empty-note">No agent runs yet — upload a workbook and click "Run via Agent".</div>`; return; }
+    const details = await Promise.all(j.runs.map(run => fetch(`/api/agent-runs/${run.run_id}`).then(r => r.ok ? r.json() : run)));
+    el.innerHTML = details.map(renderRunCard).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="empty-note">Could not load agent runs: ${esc(e.message)}</div>`;
+  }
+}
+
+// ---------------- boot ----------------
+(async function(){
+  await Promise.all([loadTargets(), loadDomains()]);
+  await Promise.all([refreshFlow(), refreshAlerts(), loadSdlc(), loadUploads(), loadAgentRuns()]);
+  setInterval(refreshFlow, 20000);
+  setInterval(refreshAlerts, 8000);
+  setInterval(loadSdlc, 30000);
+  setInterval(loadAgentRuns, 15000);
+})();
+</script>
+</body>
+</html>

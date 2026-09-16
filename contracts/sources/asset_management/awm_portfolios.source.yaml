@@ -1,0 +1,62 @@
+# Compiled from docs/templates/jarvis_intake_template.xlsx -- do not hand-edit.
+$schema: jarvis/source/v1
+source_id: awm_portfolios
+domain: asset_management
+client: default
+owner: data-eng@example.com
+classification: internal
+connection:
+  type: file
+  path: harness/landing/awm_portfolios/awm_portfolios_*.csv
+  format: csv
+  delimiter: ','
+  header: true
+  encoding: utf-8
+arrival:
+  cadence: daily
+  expected_by: 06:00
+load:
+  strategy: append
+  primary_key:
+  - portfolio_code
+schema:
+- name: portfolio_code
+  type: string
+  nullable: false
+  description: Natural key
+- name: portfolio_name
+  type: string
+  nullable: false
+  description: Name
+- name: base_currency
+  type: string
+  nullable: false
+  description: ISO currency
+- name: portfolio_type
+  type: string
+  nullable: false
+  description: mutual_fund/mandate/pension
+file_checks:
+  min_rows: 5
+  expected_columns: 4
+  row_count_deviation_pct: 40
+  reject_on_schema_drift: true
+  quarantine_path: harness/quarantine/awm_portfolios/
+quality_rules:
+- rule: not_null
+  columns:
+  - portfolio_code
+  severity: error
+- rule: unique
+  columns:
+  - portfolio_code
+  severity: error
+- rule: accepted_values
+  columns:
+  - portfolio_type
+  severity: error
+  params:
+    values:
+    - mutual_fund
+    - mandate
+    - pension

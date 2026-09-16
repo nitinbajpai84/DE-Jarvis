@@ -1,0 +1,47 @@
+# Compiled from docs/templates/jarvis_intake_template.xlsx -- do not hand-edit.
+$schema: jarvis/source/v1
+source_id: awm_instruments
+domain: asset_management
+client: default
+owner: data-eng@example.com
+classification: internal
+connection:
+  type: file
+  path: harness/landing/awm_instruments/awm_instruments_*.csv
+  format: csv
+  delimiter: ','
+  header: true
+  encoding: utf-8
+arrival:
+  cadence: daily
+  expected_by: 06:00
+load:
+  strategy: append
+  primary_key:
+  - instrument_code
+schema:
+- name: instrument_code
+  type: string
+  nullable: false
+  description: CUSIP/ISIN-like code
+- name: instrument_name
+  type: string
+  nullable: false
+  description: Name
+- name: instrument_type
+  type: string
+  nullable: false
+  description: equity/bond/cash
+file_checks:
+  min_rows: 5
+  expected_columns: 3
+  row_count_deviation_pct: 40
+  reject_on_schema_drift: true
+  quarantine_path: harness/quarantine/awm_instruments/
+quality_rules:
+- rule: regex
+  columns:
+  - instrument_code
+  severity: warning
+  params:
+    pattern: ^[A-Z]{2}[A-Z0-9]{9}[0-9]$

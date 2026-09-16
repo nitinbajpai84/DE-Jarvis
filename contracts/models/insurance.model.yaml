@@ -1,6 +1,7 @@
 # Contract schema: MODEL (silver). Compiled from docs/templates/jarvis_silver_model_template.xlsx -- do not hand-edit, re-run the compiler instead.
 $schema: jarvis/model/v1
 domain: insurance
+client: default
 grain_statement: One row per business entity or transaction, current-state conformed
   in silver.
 standardisation:

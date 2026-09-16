@@ -1,0 +1,47 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: awm_poc.awm_portfolios
+name: Portfolio - Master data
+version: 0.1.0
+status: draft
+domain: asset_management
+description:
+  purpose: Portfolio master
+schema:
+- name: awm_portfolios
+  physicalName: awm_portfolios
+  logicalType: object
+  physicalType: table
+  properties:
+  - name: portfolio_code
+    logicalType: string
+    physicalType: string
+    required: true
+    primaryKey: true
+    description: Natural key
+    quality:
+    - type: text
+      name: DQ004
+      description: not_null
+    - type: text
+      name: DQ005
+      description: unique
+  - name: portfolio_name
+    logicalType: string
+    physicalType: string
+    required: true
+    description: Name
+  - name: base_currency
+    logicalType: string
+    physicalType: string
+    required: true
+    description: ISO currency
+  - name: portfolio_type
+    logicalType: string
+    physicalType: string
+    required: true
+    description: mutual_fund/mandate/pension
+    quality:
+    - type: text
+      name: DQ006
+      description: 'in_list {''values'': [''mutual_fund'', ''mandate'', ''pension'']}'

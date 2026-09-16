@@ -1,6 +1,7 @@
 # Contract schema: GOLD / SEMANTIC. Compiled from docs/templates/jarvis_gold_model_template.xlsx -- do not hand-edit.
 $schema: jarvis/gold/v1
 domain: insurance
+client: default
 consumers:
 - bi_dashboard
 - finance_export

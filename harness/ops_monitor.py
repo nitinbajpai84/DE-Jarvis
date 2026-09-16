@@ -38,11 +38,11 @@ def _load_platform(target: str) -> dict:
 
 def latest_run(target: str, source_id: str) -> dict | None:
     platform = _load_platform(target)
-    control = platform["storage"]["control"]
+    control = platform["storage"]["control"]  # shared across every domain -- see resolve_schema
     con = sql_connect(target, platform)
     row = con.execute(
         f"select run_id, source_id, status, error_message, started_at, ended_at, "
-        f"files_seen, files_accepted, files_quarantined, rows_loaded "
+        f"files_seen, files_accepted, files_quarantined, rows_loaded, domain "
         f"from {control}.run_registry where source_id = ? order by started_at desc limit 1",
         [source_id],
     ).fetchone()
@@ -51,15 +51,19 @@ def latest_run(target: str, source_id: str) -> dict | None:
         return None
     return {"run_id": row[0], "source_id": row[1], "status": row[2], "error_message": row[3],
             "started_at": row[4], "ended_at": row[5], "files_seen": row[6],
-            "files_accepted": row[7], "files_quarantined": row[8], "rows_loaded": row[9]}
+            "files_accepted": row[7], "files_quarantined": row[8], "rows_loaded": row[9],
+            "domain": row[10]}
 
 
 def send_slack_alert(webhook_url: str, run: dict, target: str) -> tuple[int, str]:
+    # One shared channel across every domain (see the multi-domain design) -- messages are
+    # disambiguated by a [domain] tag in the header rather than routed to separate channels.
+    domain_tag = f"[{run['domain']}] " if run.get("domain") else ""
     if run["status"] == "failed":
-        header = f":rotating_light: Jarvis bronze run FAILED -- `{run['source_id']}` ({target})"
+        header = f":rotating_light: {domain_tag}Jarvis bronze run FAILED -- `{run['source_id']}` ({target})"
         detail = f"*Error:* `{run['error_message']}`"
     else:
-        header = f":warning: Jarvis bronze run had quarantined batches -- `{run['source_id']}` ({target})"
+        header = f":warning: {domain_tag}Jarvis bronze run had quarantined batches -- `{run['source_id']}` ({target})"
         detail = f"*Quarantined:* {run['files_quarantined']} of {run['files_seen']} files"
 
     payload = {

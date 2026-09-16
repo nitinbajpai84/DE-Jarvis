@@ -1,14 +1,15 @@
 # ----------------------------------------------------------------------
-# S010  claims  (file)
+# S006  policies  (file)
 # ----------------------------------------------------------------------
 $schema: jarvis/source/v1
-source_id: claims
+source_id: policies
 domain: insurance
+client: default
 owner: data-eng@example.com
 classification: internal
 connection:
   type: file
-  path: harness/landing/claims/claims_*.csv
+  path: harness/landing/policies/policies_*.csv
   format: csv
   delimiter: ','
   header: true
@@ -19,85 +20,84 @@ arrival:
 load:
   strategy: append
   primary_key:
-  - claim_id
+  - policy_id
 schema:
-- name: claim_id
-  type: string
-  nullable: false
-  description: Natural key
-- name: claim_number
-  type: string
-  nullable: false
 - name: policy_id
   type: string
   nullable: false
-  description: FK to policies
+  description: Natural key
+- name: policy_number
+  type: string
+  nullable: false
 - name: customer_id
   type: string
   nullable: false
   description: FK to customers
   pii: true
-- name: policy_coverage_id
+- name: agent_id
   type: string
   nullable: true
-  description: FK to policy_coverages
-- name: loss_date
+  description: FK to agents
+- name: product_id
+  type: string
+  nullable: false
+  description: FK to products
+- name: policy_status
+  type: string
+  nullable: false
+  description: quoted|issued|active|cancelled|expired|renewed|lapsed
+- name: effective_date
   type: date
   nullable: false
   format: '%Y-%m-%d'
-- name: report_date
+- name: expiration_date
   type: date
   nullable: false
   format: '%Y-%m-%d'
-- name: claim_status
-  type: string
-  nullable: false
-  description: open|closed|reopened|denied|subrogation
-- name: loss_cause
-  type: string
-  nullable: true
-- name: paid_amount
+- name: annual_premium
   type: decimal
   nullable: false
-- name: reserve_amount
+- name: written_premium
   type: decimal
   nullable: false
 file_checks:
   min_rows: 100
-  expected_columns: 11
+  expected_columns: 10
   row_count_deviation_pct: 40
   reject_on_schema_drift: true
-  quarantine_path: harness/quarantine/claims/
+  quarantine_path: harness/quarantine/policies/
 quality_rules:
 - rule: not_null
   columns:
-  - claim_id
-  - claim_number
   - policy_id
+  - policy_number
   - customer_id
+  - product_id
   severity: error
 - rule: unique
   columns:
-  - claim_number
+  - policy_number
   severity: error
 - rule: accepted_values
   columns:
-  - claim_status
+  - policy_status
   severity: error
   params:
     values:
-    - open
-    - closed
-    - reopened
-    - denied
-    - subrogation
+    - quoted
+    - issued
+    - active
+    - cancelled
+    - expired
+    - renewed
+    - lapsed
 - rule: range
   columns:
-  - paid_amount
+  - annual_premium
   severity: error
   params:
     min: 0
-    max: 5000000
+    max: 1000000
 sla:
   freshness_hours: 24
   completeness_pct: 99

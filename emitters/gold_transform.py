@@ -24,7 +24,7 @@ from typing import Any
 import yaml
 
 from emitters.control_plane import ensure_control_schema, log_run
-from emitters.sql_dialect import SqlConnection, connect as sql_connect
+from emitters.sql_dialect import SqlConnection, connect as sql_connect, resolve_schema
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -43,6 +43,19 @@ def _load_platform(target: str) -> dict[str, Any]:
 def _table_columns(con: SqlConnection, schema: str, table: str) -> list[str]:
     cur = con.execute(f"select * from {schema}.{table} limit 0")
     return [d[0] for d in cur.description]
+
+
+_DATE_LIKE_TYPE_CODES = {"date", "timestamp", "datetime"}
+
+
+def _date_like_columns(con: SqlConnection, schema: str, table: str) -> set[str]:
+    """information_schema.columns is ANSI-standard -- works unchanged on duckdb and Databricks
+    (same pattern already relied on in webapp/backend/pipeline.py for table discovery)."""
+    rows = con.execute(
+        "select column_name, data_type from information_schema.columns "
+        "where table_schema = ? and table_name = ?", [schema, table],
+    ).fetchall()
+    return {name for name, dtype in rows if any(t in dtype.lower() for t in _DATE_LIKE_TYPE_CODES)}
 
 
 def _metric_source_facts(gold: dict) -> dict[str, str]:
@@ -209,7 +222,100 @@ def build_monthly_performance(con: SqlConnection, gold: str, silver: str) -> int
     return con.execute(f"select count(*) from {gold}.mart_monthly_performance").fetchone()[0]
 
 
-def _build_and_log(con, gold, control, name, builder, *builder_args) -> int:
+_IMPLEMENTED_BUSINESS_CHECKS = {"variance_vs_history", "dimension_mapping_inconsistency", "new_or_missing_dimension"}
+
+
+def _log_dq_result(con, control, run_id, rule_type, column, severity, passed, observed, failed_count, domain, client):
+    result_id = con.execute(f"select coalesce(max(result_id), 0) + 1 from {control}.dq_results").fetchone()[0]
+    con.execute(
+        f"insert into {control}.dq_results values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [result_id, run_id, None, rule_type, column or "", severity, passed, observed,
+         failed_count, datetime.now(timezone.utc), domain, client],
+    )
+
+
+def eval_business_checks(
+    con: SqlConnection, control: str, gold: str, silver: str, mart_name: str, business_rules: list[dict],
+    run_id: str, domain: str, client: str,
+) -> None:
+    """The three business-rule check types named on the reference AWM slides (Variance Check,
+    Dimension Mapping Inconsistency Check, New/Missing Dimension Check) -- run against the
+    already-built gold mart, logged to control.dq_results the same as bronze/silver DQ results
+    so one table answers "what quality checks ran, where, and did they pass" for the whole
+    platform. calculated_column_accuracy/trend_anomaly/reconciliation/custom_sql are in the
+    schema's enum but not implemented here -- intake_compiler.py already refuses to silently
+    claim they're enforced (see its _IMPLEMENTED_BUSINESS_CHECKS)."""
+    table = f"{gold}.{mart_name}"
+    for br in business_rules:
+        check_type = br.get("check_type")
+        if check_type not in _IMPLEMENTED_BUSINESS_CHECKS or mart_name not in br.get("applies_to", []):
+            continue
+        column = br.get("column")
+        params = br.get("params") or {}
+        severity = br.get("severity", "warning")
+
+        if check_type == "new_or_missing_dimension":
+            reference = params.get("reference", "")
+            ref_table = reference.split(".", 1)[-1]
+            if not ref_table or not column:
+                _log_dq_result(con, control, run_id, check_type, column, severity, None,
+                               "rule has no reference/column params -- not evaluable", 0, domain, client)
+                continue
+            ref_cols = _table_columns(con, silver, ref_table)
+            if column not in ref_cols:
+                _log_dq_result(con, control, run_id, check_type, column, severity, None,
+                               f"reference table {ref_table!r} has no column {column!r}", 0, domain, client)
+                continue
+            current_filter = ' and d."row_is_current"' if "row_is_current" in ref_cols else ""
+            failed = con.execute(
+                f'select count(*) from {table} m where not exists ('
+                f'select 1 from {silver}.{ref_table} d where d."{column}" = m."{column}"{current_filter})'
+            ).fetchone()[0]
+            _log_dq_result(con, control, run_id, check_type, column, severity, failed == 0, str(failed), failed, domain, client)
+
+        elif check_type == "dimension_mapping_inconsistency":
+            allowed = params.get("allowed", [])
+            allowed = allowed if isinstance(allowed, list) else [allowed]
+            if not column or not allowed:
+                _log_dq_result(con, control, run_id, check_type, column, severity, None,
+                               "rule has no column/allowed params -- not evaluable", 0, domain, client)
+                continue
+            values = ", ".join(f"'{v}'" for v in allowed)
+            failed = con.execute(f'select count(*) from {table} where "{column}" not in ({values})').fetchone()[0]
+            _log_dq_result(con, control, run_id, check_type, column, severity, failed == 0, str(failed), failed, domain, client)
+
+        elif check_type == "variance_vs_history":
+            if not column:
+                _log_dq_result(con, control, run_id, check_type, column, severity, None,
+                               "rule has no column param -- not evaluable", 0, domain, client)
+                continue
+            max_pct = params.get("max_pct_change")
+            date_cols = _date_like_columns(con, gold, mart_name)
+            mart_cols = _table_columns(con, gold, mart_name)
+            date_col = next((c for c in mart_cols if c in date_cols), None)
+            if not date_col or max_pct is None:
+                _log_dq_result(con, control, run_id, check_type, column, severity, None,
+                               f"no date-typed grain column found on {mart_name!r} (or no max_pct_change param) "
+                               "-- variance needs a time dimension to compare periods against, skipped", 0, domain, client)
+                continue
+            partition_cols = [c for c in mart_cols if c != date_col and c != column]
+            partition_by = ("partition by " + ", ".join(f'"{c}"' for c in partition_cols)) if partition_cols else ""
+            # Period-over-period (previous row by date), not a rolling lookback_days average --
+            # a deliberate simplification of the params.lookback_days concept, not a silent
+            # reinterpretation: logged in the observed_value text below so it's visible, not hidden.
+            failed = con.execute(
+                f'with ranked as ('
+                f'  select "{column}" as v, lag("{column}") over ({partition_by} order by "{date_col}") as prev_v '
+                f'  from {table}'
+                f') select count(*) from ranked where prev_v is not null and prev_v != 0 '
+                f'and abs(v - prev_v) / abs(prev_v) * 100 > {float(max_pct)}'
+            ).fetchone()[0]
+            _log_dq_result(con, control, run_id, check_type, column, severity, failed == 0,
+                           f"{failed} period-over-period changes (by {date_col!r}) exceed {max_pct}% "
+                           "(period-over-period, not a lookback_days rolling average)", failed, domain, client)
+
+
+def _build_and_log(con, gold, silver, control, name, domain, client, business_rules, builder, *builder_args) -> int:
     started_at = datetime.now(timezone.utc)
     try:
         n = builder(*builder_args)
@@ -217,31 +323,47 @@ def _build_and_log(con, gold, control, name, builder, *builder_args) -> int:
         log_run(con, control, run_id=str(uuid.uuid4()), source_id=name, phase="gold",
                 started_at=started_at, ended_at=datetime.now(timezone.utc), status="failed",
                 error_message=str(exc), files_seen=1, files_accepted=0, files_quarantined=0,
-                rows_loaded=0, columns_processed=0)
+                rows_loaded=0, columns_processed=0, domain=domain, client=client)
         raise
     n_cols = len(_table_columns(con, gold, name))
-    log_run(con, control, run_id=str(uuid.uuid4()), source_id=name, phase="gold",
+    run_id = str(uuid.uuid4())
+    log_run(con, control, run_id=run_id, source_id=name, phase="gold",
             started_at=started_at, ended_at=datetime.now(timezone.utc), status="completed",
             error_message=None, files_seen=1, files_accepted=1, files_quarantined=0,
-            rows_loaded=n, columns_processed=n_cols)
+            rows_loaded=n, columns_processed=n_cols, domain=domain, client=client)
+    if business_rules:
+        eval_business_checks(con, control, gold, silver, name, business_rules, run_id, domain, client)
     return n
 
 
 def run(domain: str, target: str = "duckdb") -> dict[str, int]:
     gold_contract = _load_gold(domain)
     platform = _load_platform(target)
-    gold, silver, control = platform["storage"]["gold"], platform["storage"]["silver"], platform["storage"]["control"]
+    client = gold_contract.get("client", "default")
+    gold = resolve_schema(platform, domain, "gold")
+    silver = resolve_schema(platform, domain, "silver")
+    control = resolve_schema(platform, domain, "control")
 
     con = sql_connect(target, platform)
     ensure_control_schema(con, control)
+    business_rules = gold_contract.get("business_rules", [])
     try:
         con.execute(f"create schema if not exists {gold}")
         results = {}
         for mart in gold_contract["marts"]:
             results[mart["name"]] = _build_and_log(
-                con, gold, control, mart["name"], build_mart, con, gold, silver, mart, gold_contract)
-        results["mart_monthly_performance"] = _build_and_log(
-            con, gold, control, "mart_monthly_performance", build_monthly_performance, con, gold, silver)
+                con, gold, silver, control, mart["name"], domain, client, business_rules,
+                build_mart, con, gold, silver, mart, gold_contract)
+        # build_monthly_performance is hand-coded against insurance's specific fact_premium/
+        # fact_claim/dim_policy tables (see its own docstring: "NOT driven by
+        # gold_model_template.xlsx"), not something every domain has -- gating it here rather
+        # than at the function itself, since the function's own logic is genuinely insurance-
+        # specific and shouldn't pretend otherwise. Found by running a second domain through
+        # this engine for the first time (verify_intake, via the new intake_compiler path).
+        if domain == "insurance":
+            results["mart_monthly_performance"] = _build_and_log(
+                con, gold, silver, control, "mart_monthly_performance", domain, client, business_rules,
+                build_monthly_performance, con, gold, silver)
         return results
     finally:
         con.close()

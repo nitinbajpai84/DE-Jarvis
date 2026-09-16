@@ -1,14 +1,15 @@
 # ----------------------------------------------------------------------
-# S008  premiums  (file)
+# S007  policy_coverages  (file)
 # ----------------------------------------------------------------------
 $schema: jarvis/source/v1
-source_id: premiums
+source_id: policy_coverages
 domain: insurance
+client: default
 owner: data-eng@example.com
 classification: internal
 connection:
   type: file
-  path: harness/landing/premiums/premiums_*.csv
+  path: harness/landing/policy_coverages/policy_coverages_*.csv
   format: csv
   delimiter: ','
   header: true
@@ -19,9 +20,9 @@ arrival:
 load:
   strategy: append
   primary_key:
-  - premium_id
+  - policy_coverage_id
 schema:
-- name: premium_id
+- name: policy_coverage_id
   type: string
   nullable: false
   description: Natural key
@@ -29,51 +30,47 @@ schema:
   type: string
   nullable: false
   description: FK to policies
-- name: policy_coverage_id
+- name: coverage_code
   type: string
+  nullable: false
+- name: coverage_name
+  type: string
+  nullable: false
+- name: coverage_status
+  type: string
+  nullable: false
+  description: active|cancelled|expired
+- name: limit_amount
+  type: decimal
   nullable: true
-  description: FK to policy_coverages
-- name: premium_period_start
+- name: deductible_amount
+  type: decimal
+  nullable: true
+- name: effective_date
   type: date
   nullable: false
   format: '%Y-%m-%d'
-- name: premium_period_end
+- name: expiration_date
   type: date
   nullable: false
   format: '%Y-%m-%d'
-- name: transaction_type
-  type: string
-  nullable: false
-  description: new_business|renewal|endorsement|cancellation|reinstatement|audit
-- name: written_premium_amount
-  type: decimal
-  nullable: false
-- name: earned_premium_amount
-  type: decimal
-  nullable: false
 file_checks:
   min_rows: 100
-  expected_columns: 8
+  expected_columns: 9
   row_count_deviation_pct: 40
   reject_on_schema_drift: true
-  quarantine_path: harness/quarantine/premiums/
+  quarantine_path: harness/quarantine/policy_coverages/
 quality_rules:
 - rule: not_null
   columns:
-  - premium_id
+  - policy_coverage_id
   - policy_id
+  - coverage_code
   severity: error
 - rule: unique
   columns:
-  - premium_id
+  - policy_coverage_id
   severity: error
-- rule: range
-  columns:
-  - written_premium_amount
-  severity: warn
-  params:
-    min: 0
-    max: 1000000
 sla:
   freshness_hours: 24
   completeness_pct: 99

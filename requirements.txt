@@ -12,3 +12,8 @@ pyyaml>=6
 faker>=30
 deepagents
 langchain-google-genai
+fastapi>=0.115
+uvicorn[standard]>=0.32
+python-multipart>=0.0.12
+jsonschema>=4
+langgraph-checkpoint-sqlite>=3

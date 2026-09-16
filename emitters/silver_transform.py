@@ -31,7 +31,7 @@ from typing import Any
 import yaml
 
 from emitters.control_plane import ensure_control_schema, log_run
-from emitters.sql_dialect import SqlConnection, connect as sql_connect
+from emitters.sql_dialect import SqlConnection, connect as sql_connect, resolve_schema
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -57,6 +57,52 @@ def _bronze_columns(con: SqlConnection, bronze: str, table: str) -> list[str]:
     lineage = {"data_catalogue_id", "source_record_id", "_run_id", "_source_file",
                "_ingested_at", "_record_hash"}
     return [c for c in all_cols if c not in lineage]
+
+
+def eval_entity_quality_rules(
+    con: SqlConnection, control: str, silver: str, entity_name: str, rules: list[dict],
+    run_id: str, domain: str, client: str,
+) -> None:
+    """Silver has no quarantine concept (a bad row doesn't get pulled back out of a dimension
+    already conformed from bronze) -- this only evaluates and logs to control.dq_results, same
+    rule vocabulary bronze_loader.py's _eval_quality_rules implements, so a rule authored once in
+    the intake workbook means the same thing whichever layer it targets."""
+    table = f"{silver}.{entity_name}"
+    now = datetime.now(timezone.utc)
+    for rule in rules:
+        rtype, cols, severity = rule["rule"], rule["columns"], rule["severity"]
+        if rtype == "not_null":
+            failed = con.execute(
+                f"select count(*) from {table} where " + " or ".join(f'"{c}" is null' for c in cols)
+            ).fetchone()[0]
+        elif rtype == "unique":
+            col_list = ", ".join(f'"{c}"' for c in cols)
+            failed = con.execute(f"select count(*) - count(distinct ({col_list})) from {table}").fetchone()[0]
+        elif rtype == "accepted_values":
+            values = ", ".join(f"'{v}'" for v in rule["params"]["values"])
+            failed = con.execute(f'select count(*) from {table} where "{cols[0]}" not in ({values})').fetchone()[0]
+        elif rtype == "range":
+            conds = []
+            if "min" in rule["params"]:
+                conds.append(f'"{cols[0]}" < {rule["params"]["min"]}')
+            if "max" in rule["params"]:
+                conds.append(f'"{cols[0]}" > {rule["params"]["max"]}')
+            failed = con.execute(f"select count(*) from {table} where " + " or ".join(conds)).fetchone()[0]
+        elif rtype == "regex":
+            pattern = rule["params"]["pattern"]
+            failed = con.execute(
+                f'select count(*) from {table} where "{cols[0]}" is not null '
+                f'and not regexp_matches("{cols[0]}", ?)', [pattern]
+            ).fetchone()[0]
+        else:
+            raise NotImplementedError(f"silver quality rule type {rtype!r} is not implemented.")
+
+        passed = failed == 0
+        result_id = con.execute(f"select coalesce(max(result_id), 0) + 1 from {control}.dq_results").fetchone()[0]
+        con.execute(
+            f"insert into {control}.dq_results values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [result_id, run_id, None, rtype, ",".join(cols), severity, passed, str(failed), failed, now, domain, client],
+        )
 
 
 def build_scd1_dimension(con: SqlConnection, silver: str, bronze: str, dim: dict[str, Any]) -> int:
@@ -126,7 +172,10 @@ def build_fact(con: SqlConnection, silver: str, bronze: str, fact: dict[str, Any
 def run(domain: str, target: str = "duckdb") -> dict[str, Any]:
     model = _load_model(domain)
     platform = _load_platform(target)
-    silver, bronze, control = platform["storage"]["silver"], platform["storage"]["bronze"], platform["storage"]["control"]
+    client = model.get("client", "default")
+    silver = resolve_schema(platform, domain, "silver")
+    bronze = resolve_schema(platform, domain, "bronze")
+    control = resolve_schema(platform, domain, "control")
 
     con = sql_connect(target, platform)
     ensure_control_schema(con, control)
@@ -150,13 +199,17 @@ def run(domain: str, target: str = "duckdb") -> dict[str, Any]:
                 log_run(con, control, run_id=str(uuid.uuid4()), source_id=dim["name"], phase="silver",
                         started_at=started_at, ended_at=datetime.now(timezone.utc), status="failed",
                         error_message=str(exc), files_seen=1, files_accepted=0, files_quarantined=0,
-                        rows_loaded=0, columns_processed=0)
+                        rows_loaded=0, columns_processed=0, domain=domain, client=client)
                 raise
             n_cols = len(_bronze_columns(con, silver, dim["name"]))
-            log_run(con, control, run_id=str(uuid.uuid4()), source_id=dim["name"], phase="silver",
+            run_id = str(uuid.uuid4())
+            log_run(con, control, run_id=run_id, source_id=dim["name"], phase="silver",
                     started_at=started_at, ended_at=datetime.now(timezone.utc), status="completed",
                     error_message=None, files_seen=1, files_accepted=1, files_quarantined=0,
-                    rows_loaded=n, columns_processed=n_cols)
+                    rows_loaded=n, columns_processed=n_cols, domain=domain, client=client)
+            if dim.get("quality_rules"):
+                eval_entity_quality_rules(con, control, silver, dim["name"], dim["quality_rules"],
+                                          run_id, domain, client)
 
         for fact in model["facts"]:
             started_at = datetime.now(timezone.utc)
@@ -167,13 +220,17 @@ def run(domain: str, target: str = "duckdb") -> dict[str, Any]:
                 log_run(con, control, run_id=str(uuid.uuid4()), source_id=fact["name"], phase="silver",
                         started_at=started_at, ended_at=datetime.now(timezone.utc), status="failed",
                         error_message=str(exc), files_seen=1, files_accepted=0, files_quarantined=0,
-                        rows_loaded=0, columns_processed=0)
+                        rows_loaded=0, columns_processed=0, domain=domain, client=client)
                 raise
             n_cols = len(_bronze_columns(con, silver, fact["name"]))
-            log_run(con, control, run_id=str(uuid.uuid4()), source_id=fact["name"], phase="silver",
+            run_id = str(uuid.uuid4())
+            log_run(con, control, run_id=run_id, source_id=fact["name"], phase="silver",
                     started_at=started_at, ended_at=datetime.now(timezone.utc), status="completed",
                     error_message=None, files_seen=1, files_accepted=1, files_quarantined=0,
-                    rows_loaded=n, columns_processed=n_cols)
+                    rows_loaded=n, columns_processed=n_cols, domain=domain, client=client)
+            if fact.get("quality_rules"):
+                eval_entity_quality_rules(con, control, silver, fact["name"], fact["quality_rules"],
+                                          run_id, domain, client)
 
         return results
     finally:

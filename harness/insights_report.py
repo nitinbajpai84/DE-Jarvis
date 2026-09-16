@@ -19,10 +19,12 @@ from datetime import date, datetime, timezone
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
-from emitters.sql_dialect import connect as sql_connect  # noqa: E402
+from emitters.sql_dialect import connect as sql_connect, resolve_schema  # noqa: E402
 import yaml  # noqa: E402
 
 OUT_PATH = REPO_ROOT / "harness" / "insights_report.html"
+DOMAIN = "insurance"  # this report is insurance-specific (book of business) -- not meant to
+                       # generalize across domains the way the pipeline/control-plane code does
 
 # dataviz skill's validated default palette (references/palette.md)
 BLUE, ORANGE, AQUA = "#2a78d6", "#eb6834", "#1baf7a"
@@ -44,7 +46,8 @@ def _status_color(loss_ratio: float) -> str:
 
 def gather(target: str) -> dict:
     platform = _load_platform(target)
-    gold, silver = platform["storage"]["gold"], platform["storage"]["silver"]
+    gold = resolve_schema(platform, DOMAIN, "gold")
+    silver = resolve_schema(platform, DOMAIN, "silver")
     con = sql_connect(target, platform)
 
     kpi = {}

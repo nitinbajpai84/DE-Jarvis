@@ -1,0 +1,58 @@
+# Compiled from docs/templates/jarvis_intake_template.xlsx -- do not hand-edit.
+$schema: jarvis/source/v1
+source_id: awm_positions
+domain: asset_management
+client: default
+owner: data-eng@example.com
+classification: internal
+connection:
+  type: file
+  path: harness/landing/awm_positions/awm_positions_*.csv
+  format: csv
+  delimiter: ','
+  header: true
+  encoding: utf-8
+arrival:
+  cadence: daily
+  expected_by: 07:00
+load:
+  strategy: append
+  primary_key:
+  - portfolio_code
+  - as_of_date
+  - instrument_code
+schema:
+- name: portfolio_code
+  type: string
+  nullable: false
+  description: FK to portfolio
+- name: as_of_date
+  type: date
+  nullable: false
+  description: Position date
+  format: yyyy-MM-dd
+- name: instrument_code
+  type: string
+  nullable: false
+  description: FK to instrument
+- name: quantity
+  type: decimal
+  nullable: false
+  description: Units held
+- name: market_value
+  type: decimal
+  nullable: false
+  description: Market value in base currency
+file_checks:
+  min_rows: 10
+  expected_columns: 5
+  row_count_deviation_pct: 40
+  reject_on_schema_drift: true
+  quarantine_path: harness/quarantine/awm_positions/
+quality_rules:
+- rule: range
+  columns:
+  - market_value
+  severity: warning
+  params:
+    min: 0.0

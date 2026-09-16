@@ -1,5 +1,8 @@
 __pycache__/
 *.duckdb
+*.sqlite
+harness/agent_run_logs/
+harness/sdlc_log_failures.log
 harness/landing/
 harness/quarantine/
 .env
@@ -15,3 +18,4 @@ harness/dashboard.html
 harness/dashboard_*.html
 harness/agent_dashboard.html
 harness/insights_report.html
+webapp/uploads/

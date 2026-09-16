@@ -11,6 +11,7 @@ storage.control (CLAUDE.md rule 1: nothing hardcoded that isn't traceable to a c
 from __future__ import annotations
 
 import pathlib
+from datetime import datetime, timezone
 from typing import Any
 
 from emitters.sql_dialect import SqlConnection
@@ -62,7 +63,9 @@ create table if not exists {control}.run_registry (
     files_accepted           integer,
     files_quarantined         integer,
     rows_loaded                 bigint,
-    columns_processed            integer
+    columns_processed            integer,
+    domain                        varchar,
+    client                         varchar
 );
 
 create table if not exists {control}.file_audit (
@@ -76,7 +79,9 @@ create table if not exists {control}.file_audit (
     checksum             varchar,
     arrival_time          timestamp,
     fqc_passed            boolean,
-    action                varchar   -- 'loaded' | 'quarantined'
+    action                varchar,  -- 'loaded' | 'quarantined'
+    domain                 varchar,
+    client                   varchar
 );
 
 create table if not exists {control}.data_object_catalogue (
@@ -88,7 +93,9 @@ create table if not exists {control}.data_object_catalogue (
     file_size_kb             double,
     checksum                  varchar,
     created_at                 timestamp,
-    loader_status               varchar
+    loader_status               varchar,
+    domain                       varchar,
+    client                        varchar
 );
 
 create table if not exists {control}.dq_results (
@@ -101,7 +108,9 @@ create table if not exists {control}.dq_results (
     passed                   boolean,
     observed_value            varchar,
     failed_row_count          integer,
-    evaluated_at                timestamp
+    evaluated_at                timestamp,
+    domain                       varchar,
+    client                        varchar
 );
 
 create table if not exists {control}.load_lineage (
@@ -111,7 +120,55 @@ create table if not exists {control}.load_lineage (
     data_catalogue_id        bigint,
     loaded_at                  timestamp
 );
+
+create table if not exists {control}.sdlc_run (
+    run_id           varchar primary key,
+    domain            varchar,
+    client             varchar,
+    project_code        varchar,
+    workbook_path         varchar,
+    thread_id               varchar,   -- deepagents/langgraph checkpoint thread id -- how a
+                                        -- later 'approve' call resumes this exact run
+    status                   varchar,   -- 'running' | 'awaiting_approval' | 'approved' |
+                                        -- 'rejected' | 'completed' | 'failed'
+    started_at                 timestamp,
+    updated_at                   timestamp,
+    started_by                     varchar
+);
+
+create table if not exists {control}.sdlc_stage_run (
+    id                bigint primary key,
+    run_id             varchar,
+    stage               varchar,  -- discover | specify | freeze | build | validate | operate
+                                   -- (deepagents' six-stage factory -- see agents/jarvis_tools.py's
+                                   -- module docstring for how this maps to the 10-stage
+                                   -- docs/agentic-sdlc.md view the rest of the Control Room uses)
+    agent                  varchar,
+    status                    varchar,  -- 'started' | 'completed' | 'failed' | 'awaiting_human'
+    detail                      varchar,
+    started_at                    timestamp,
+    ended_at                        timestamp
+);
 """
+
+
+# Tables that predate the multi-domain design, and the columns each has picked up since it
+# was first created -- "create table if not exists" is a no-op against an already-existing
+# table, so every column added after a table's first release needs its own migration entry
+# here. (table, column, ddl_type, backfill_value-or-None) -- backfill runs only for columns
+# added in the domain/client migration, so pre-existing single-domain rows don't end up
+# NULL and invisible to a domain-scoped query the moment one is added.
+_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
+    ("run_registry", "columns_processed", "integer", None),
+    ("run_registry", "domain", "varchar", "insurance"),
+    ("run_registry", "client", "varchar", "default"),
+    ("file_audit", "domain", "varchar", "insurance"),
+    ("file_audit", "client", "varchar", "default"),
+    ("data_object_catalogue", "domain", "varchar", "insurance"),
+    ("data_object_catalogue", "client", "varchar", "default"),
+    ("dq_results", "domain", "varchar", "insurance"),
+    ("dq_results", "client", "varchar", "default"),
+]
 
 
 def ensure_control_schema(con: SqlConnection, control_schema: str) -> None:
@@ -123,39 +180,96 @@ def ensure_control_schema(con: SqlConnection, control_schema: str) -> None:
         if statement:
             con.execute(statement)
 
-    # Migration for a run_registry created before columns_processed existed: "create table if
-    # not exists" above is a no-op against an already-existing table, so a new column needs its
-    # own path. `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` transpiles to itself on Databricks
-    # (looks valid, isn't -- Databricks SQL doesn't have that clause, confirmed against a real
+    # `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` transpiles to itself on Databricks (looks
+    # valid, isn't -- Databricks SQL doesn't have that clause, confirmed against a real
     # warehouse, not assumed from sqlglot's output) -- same class of trap as ON CONFLICT.
-    # Check-then-alter is the portable version.
-    try:
-        cur = con.execute(f"select * from {control_schema}.run_registry limit 0")
-        existing_cols = {d[0] for d in cur.description}
-    except Exception:  # noqa: BLE001 -- table genuinely doesn't exist yet on this run; nothing to migrate
-        existing_cols = {"columns_processed"}
-    if "columns_processed" not in existing_cols:
-        con.execute(f"alter table {control_schema}.run_registry add column columns_processed integer")
+    # Check-then-alter is the portable version; a fresh table already has every column from
+    # the DDL above, so its columns are skipped here, not double-added.
+    for table, column, ddl_type, backfill in _MIGRATIONS:
+        try:
+            cur = con.execute(f"select * from {control_schema}.{table} limit 0")
+            existing_cols = {d[0] for d in cur.description}
+        except Exception:  # noqa: BLE001 -- table genuinely doesn't exist yet on this run; nothing to migrate
+            continue
+        if column in existing_cols:
+            continue
+        con.execute(f"alter table {control_schema}.{table} add column {column} {ddl_type}")
+        if backfill is not None:
+            con.execute(f"update {control_schema}.{table} set {column} = ? where {column} is null", [backfill])
 
 
 def log_run(
     con: SqlConnection, control_schema: str, *, run_id: str, source_id: str, phase: str,
     started_at, ended_at, status: str, error_message: str | None, files_seen: int,
     files_accepted: int, files_quarantined: int, rows_loaded: int, columns_processed: int,
+    domain: str = "insurance", client: str = "default",
 ) -> None:
     """One control.run_registry row -- shared by bronze/silver/gold so 'every run writes to
     run_registry' (CLAUDE.md rule 7) actually holds for all three layers, not just bronze. Used
     by silver_transform.py and gold_transform.py; bronze_loader.py's own insert predates this
     helper and works correctly, left as-is rather than churned for a pure refactor."""
     con.execute(
-        f"insert into {control_schema}.run_registry values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        f"insert into {control_schema}.run_registry values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [run_id, source_id, phase, started_at, ended_at, status, error_message,
-         files_seen, files_accepted, files_quarantined, rows_loaded, columns_processed],
+         files_seen, files_accepted, files_quarantined, rows_loaded, columns_processed,
+         domain, client],
     )
 
 
+def start_sdlc_run(
+    con: SqlConnection, control_schema: str, *, run_id: str, domain: str, client: str,
+    project_code: str, workbook_path: str, thread_id: str, started_by: str,
+) -> None:
+    now = datetime.now(timezone.utc)
+    con.execute(
+        f"insert into {control_schema}.sdlc_run values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [run_id, domain, client, project_code, workbook_path, thread_id, "running", now, now, started_by],
+    )
+
+
+def update_sdlc_run_status(con: SqlConnection, control_schema: str, run_id: str, status: str) -> None:
+    now = datetime.now(timezone.utc)
+    con.execute(
+        f"update {control_schema}.sdlc_run set status = ?, updated_at = ? where run_id = ?",
+        [status, now, run_id],
+    )
+
+
+def log_sdlc_stage(
+    con: SqlConnection, control_schema: str, *, run_id: str, stage: str, agent: str,
+    status: str, detail: str, started_at, ended_at=None,
+) -> None:
+    """One row per stage transition -- a stage can log more than once (e.g. 'started' then
+    'completed'), so this is an append-only trail, not an upsert; the Control Room's Run view
+    (Phase D) reads the latest row per stage for current status and the full history for the
+    timeline underneath it.
+
+    The 'select max(id)+1, then insert' pattern every other control-plane table in this file
+    uses is NOT atomic, and this is the one table where that has actually bitten: an agent's
+    tool calls land here from langgraph's tool-execution layer closely enough together that two
+    calls can read the same max(id) before either commits, and the second insert then fails on
+    the primary key -- confirmed via a real interrupt/resume agent run during Phase C, not
+    theoretical. A short retry-on-conflict loop, rather than a schema change (an IDENTITY column
+    would need dialect-specific DDL, the exact kind of platform branching this project avoids
+    everywhere else)."""
+    import random
+    import time
+    for attempt in range(5):
+        try:
+            next_id = con.execute(f"select coalesce(max(id), 0) + 1 from {control_schema}.sdlc_stage_run").fetchone()[0]
+            con.execute(
+                f"insert into {control_schema}.sdlc_stage_run values (?, ?, ?, ?, ?, ?, ?, ?)",
+                [next_id, run_id, stage, agent, status, detail, started_at, ended_at],
+            )
+            return
+        except Exception:  # noqa: BLE001 -- retry on a concurrent-insert conflict; re-raise if it's something else
+            if attempt == 4:
+                raise
+            time.sleep(0.02 * (attempt + 1) + random.random() * 0.03)
+
+
 def compile_source_registration(
-    con: SqlConnection, contract: dict[str, Any], control_schema: str
+    con: SqlConnection, contract: dict[str, Any], control_schema: str, bronze_schema: str
 ) -> None:
     """Upsert control.data_system / config_data_source_file from a parsed *.source.yaml.
 
@@ -214,7 +328,7 @@ def compile_source_registration(
         [
             f"{source_id}_file", source_id, contract["domain"], ctype,
             name, fmt, extension,
-            location, f"bronze.{source_id}",
+            location, f"{bronze_schema}.{source_id}",
             True, None, conn.get("delimiter") is not None, conn.get("delimiter"),
             conn.get("header", False), location,
             contract.get("arrival", {}).get("cadence"),

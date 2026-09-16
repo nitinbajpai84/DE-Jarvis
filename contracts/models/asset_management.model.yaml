@@ -1,0 +1,49 @@
+# Contract schema: MODEL (silver). Compiled from docs/templates/jarvis_intake_template.xlsx -- do not hand-edit.
+$schema: jarvis/model/v1
+domain: asset_management
+client: default
+grain_statement: One row per business entity or transaction, current-state conformed
+  in silver.
+standardisation:
+  date_format: ISO-8601
+  timezone: UTC
+  decimal_precision:
+  - 18
+  - 4
+  string_case: trim_only
+  null_tokens:
+  - ''
+  - 'NULL'
+  - N/A
+  - '-'
+dimensions:
+- name: dim_awm_portfolio
+  type: scd1
+  business_key:
+  - portfolio_code
+  surrogate_key: portfolio_sk
+  source:
+  - awm_portfolios
+- name: dim_awm_instrument
+  type: scd1
+  business_key:
+  - instrument_code
+  surrogate_key: instrument_sk
+  source:
+  - awm_instruments
+facts:
+- name: fact_awm_position
+  grain:
+  - portfolio_code
+  - as_of_date
+  - instrument_code
+  type: transaction
+  source:
+  - awm_positions
+  foreign_keys: []
+  measures: []
+conformance:
+  shared_dimensions:
+  - dim_awm_portfolio
+  - dim_awm_instrument
+  reject_orphan_fks: false

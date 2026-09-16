@@ -1,0 +1,345 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.org/data-platform-factory/platform_spec.schema.json",
+  "title": "Data Platform Factory - Canonical Platform Spec",
+  "description": "Platform-agnostic intermediate representation (IR). Every front end (Excel, chat, form) compiles INTO this; every platform adapter (Databricks, Snowflake, Fabric, DuckDB) compiles FROM this. Mirrors the Ingestion Master Data Model: DataSystem, ConfigDataSourceFile, DataAttribute, DQRuleDefinition/Object/Attribute, CDM entities, gold datasets and business checks.",
+  "type": "object",
+  "required": ["spec_version", "project", "environment", "data_systems", "data_sources"],
+  "additionalProperties": false,
+  "properties": {
+    "spec_version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "description": "Semantic version, bumped at every Freeze gate."},
+    "status": {"enum": ["draft", "in_review", "frozen", "deprecated"], "default": "draft"},
+
+    "project": {
+      "type": "object",
+      "required": ["code", "name", "client", "domain"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {"$ref": "#/$defs/identifier"},
+        "name": {"type": "string"},
+        "client": {"type": "string"},
+        "domain": {"type": "string", "description": "e.g. asset_management, insurance, retail"},
+        "owner": {"type": "string"},
+        "description": {"type": "string"}
+      }
+    },
+
+    "environment": {
+      "type": "object",
+      "required": ["platform", "catalog", "schemas"],
+      "additionalProperties": false,
+      "properties": {
+        "platform": {"enum": ["databricks", "snowflake", "fabric", "duckdb", "postgres", "bigquery"]},
+        "environment_name": {"enum": ["dev", "sit", "uat", "prod"], "default": "dev"},
+        "canonical_sql_dialect": {"type": "string", "default": "spark", "description": "Dialect business SQL is authored in; adapters transpile with SQLGlot."},
+        "catalog": {"type": "string", "description": "Unity Catalog catalog / Snowflake database / Fabric workspace / DuckDB file"},
+        "schemas": {
+          "type": "object",
+          "required": ["bronze", "silver", "gold", "utility"],
+          "additionalProperties": false,
+          "properties": {
+            "landing": {"type": "string"},
+            "bronze": {"type": "string"},
+            "silver": {"type": "string"},
+            "gold": {"type": "string"},
+            "utility": {"type": "string"}
+          }
+        },
+        "landing_path": {"type": "string", "description": "e.g. /Volumes/<catalog>/landing/raw (Databricks Free Edition: use UC Volumes, not DBFS)"},
+        "auth_profile": {"type": "string", "description": "NAME of a CLI profile / secret scope. Never a credential value."},
+        "compute": {"type": "string", "description": "serverless | warehouse name | cluster policy"},
+        "orchestrator": {"enum": ["platform_native", "dagster", "airflow", "none"], "default": "platform_native"}
+      }
+    },
+
+    "data_systems": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["data_system_code", "name", "system_type"],
+        "additionalProperties": false,
+        "properties": {
+          "data_system_code": {"$ref": "#/$defs/identifier"},
+          "name": {"type": "string"},
+          "system_type": {"type": "string", "description": "OMS, FA, TA, Custodian, CRM, Market Data..."},
+          "country": {"type": "string"},
+          "description": {"type": "string"},
+          "is_active": {"type": "boolean", "default": true}
+        }
+      }
+    },
+
+    "data_sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/data_source"}
+    },
+
+    "dq_rules": {"type": "array", "items": {"$ref": "#/$defs/dq_rule"}},
+
+    "silver_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entities": {"type": "array", "items": {"$ref": "#/$defs/silver_entity"}},
+        "mappings": {"type": "array", "items": {"$ref": "#/$defs/mapping"}}
+      }
+    },
+
+    "gold_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "datasets": {"type": "array", "items": {"$ref": "#/$defs/gold_dataset"}},
+        "metrics": {"type": "array", "items": {"$ref": "#/$defs/metric"}},
+        "business_checks": {"type": "array", "items": {"$ref": "#/$defs/business_check"}}
+      }
+    },
+
+    "governance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lineage_columns": {
+          "type": "array",
+          "items": {"type": "string"},
+          "default": ["data_source_id", "data_catalogue_id", "source_record_id", "batch_log_id", "load_ts"]
+        },
+        "notifications": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["channel", "recipients", "on"],
+            "additionalProperties": false,
+            "properties": {
+              "channel": {"enum": ["email", "teams", "slack", "webhook"]},
+              "recipients": {"type": "array", "items": {"type": "string"}},
+              "on": {"type": "array", "items": {"enum": ["failure", "sla_breach", "dq_error", "dq_warning", "success"]}},
+              "scope": {"type": "string", "description": "data_source_code, dataset name, or '*'"}
+            }
+          }
+        },
+        "catalog_tool": {"enum": ["openmetadata", "datahub", "unity_catalog", "purview", "collibra", "none"], "default": "openmetadata"}
+      }
+    },
+
+    "approvals": {
+      "type": "array",
+      "description": "Filled by the Freeze gate; agents may not self-approve.",
+      "items": {
+        "type": "object",
+        "required": ["stage", "approved_by", "approved_on", "spec_version"],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {"enum": ["discover", "specify", "freeze", "build", "validate", "operate"]},
+          "approved_by": {"type": "string"},
+          "approved_on": {"type": "string", "format": "date"},
+          "spec_version": {"type": "string"},
+          "notes": {"type": "string"}
+        }
+      }
+    }
+  },
+
+  "$defs": {
+    "identifier": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$"},
+
+    "data_type": {
+      "enum": ["string", "integer", "bigint", "decimal", "double", "boolean", "date", "timestamp", "binary", "json"]
+    },
+
+    "data_source": {
+      "type": "object",
+      "required": ["data_source_id", "data_source_code", "data_system_code", "entity_name", "file", "load", "bronze_table", "attributes"],
+      "additionalProperties": false,
+      "properties": {
+        "data_source_id": {"type": "integer", "minimum": 1},
+        "data_source_code": {"$ref": "#/$defs/identifier"},
+        "data_system_code": {"$ref": "#/$defs/identifier"},
+        "entity_name": {"type": "string"},
+        "entity_type": {"type": "string"},
+        "category": {"type": "string", "description": "Positions, Transactions, Prices..."},
+        "description": {"type": "string"},
+        "owner": {"type": "string"},
+        "is_active": {"type": "boolean", "default": true},
+        "file": {
+          "type": "object",
+          "required": ["name_pattern", "format"],
+          "additionalProperties": false,
+          "properties": {
+            "name_pattern": {"type": "string", "description": "Human pattern, e.g. pos.yyyymmdd.xml"},
+            "name_regex": {"type": "string"},
+            "format": {"enum": ["csv", "txt", "json", "xml", "parquet", "excel", "avro", "api_json", "table"]},
+            "extension": {"type": "string"},
+            "delimiter": {"type": "string"},
+            "text_qualifier": {"type": "string"},
+            "encoding": {"type": "string", "default": "utf-8"},
+            "has_header": {"type": "boolean", "default": true},
+            "header_row_number": {"type": "integer", "minimum": 0},
+            "has_footer": {"type": "boolean", "default": false},
+            "row_tag": {"type": "string", "description": "XML row element"},
+            "sheet_name": {"type": "string"},
+            "effective_date_in_filename": {"type": "boolean", "default": false},
+            "effective_date_format": {"type": "string"},
+            "estimated_size_kb": {"type": "integer"}
+          }
+        },
+        "load": {
+          "type": "object",
+          "required": ["load_type", "frequency"],
+          "additionalProperties": false,
+          "properties": {
+            "load_type": {"enum": ["full", "incremental", "cdc", "snapshot"]},
+            "frequency": {"enum": ["intraday", "daily", "weekly", "monthly", "adhoc"]},
+            "sla_cutoff_time": {"type": "string", "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"},
+            "is_mandatory": {"type": "boolean", "default": true},
+            "watermark_column": {"type": "string"}
+          }
+        },
+        "bronze_table": {"$ref": "#/$defs/identifier"},
+        "attributes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "ordinal", "data_type"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {"type": "string"},
+              "ordinal": {"type": "integer", "minimum": 1},
+              "data_type": {"$ref": "#/$defs/data_type"},
+              "precision": {"type": "integer"},
+              "scale": {"type": "integer"},
+              "nullable": {"type": "boolean", "default": true},
+              "is_business_key": {"type": "boolean", "default": false},
+              "pii": {"type": "boolean", "default": false},
+              "format": {"type": "string", "description": "e.g. yyyy-MM-dd"},
+              "description": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+
+    "dq_rule": {
+      "type": "object",
+      "required": ["rule_id", "rule_name", "level", "check", "severity", "action"],
+      "additionalProperties": false,
+      "properties": {
+        "rule_id": {"type": "string", "pattern": "^DQ[0-9]{3,5}$"},
+        "rule_name": {"type": "string"},
+        "level": {"enum": ["file", "attribute", "business"]},
+        "layer": {"enum": ["landing", "bronze", "silver", "gold"]},
+        "dimension": {"enum": ["completeness", "validity", "uniqueness", "timeliness", "consistency", "accuracy", "conformity"]},
+        "target": {"type": "string", "description": "data_source_code, silver entity, or gold dataset"},
+        "column": {"type": "string"},
+        "check": {
+          "enum": ["file_name_regex", "file_extension", "file_not_empty", "row_count_min", "sla_arrival",
+                   "header_matches", "not_null", "unique", "regex", "in_list", "range", "is_date",
+                   "referential", "sql_expression", "natural_language"]
+        },
+        "params": {"type": "object"},
+        "severity": {"enum": ["error", "warning"]},
+        "action": {"enum": ["reject_file", "quarantine_row", "flag_row", "notify_only"]},
+        "description": {"type": "string", "description": "Plain English; required when check=natural_language (an agent converts it, a human approves)."},
+        "owner": {"type": "string"},
+        "is_active": {"type": "boolean", "default": true}
+      }
+    },
+
+    "silver_entity": {
+      "type": "object",
+      "required": ["name", "entity_type", "business_key", "columns"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"$ref": "#/$defs/identifier"},
+        "entity_type": {"enum": ["dimension", "fact", "bridge", "reference"]},
+        "scd_type": {"enum": [0, 1, 2], "default": 1},
+        "business_key": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "merge_hash_columns": {"type": "array", "items": {"type": "string"}, "description": "SCD2 change-detection columns"},
+        "surrogate_key": {"type": "string"},
+        "description": {"type": "string"},
+        "columns": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "data_type"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {"type": "string"},
+              "data_type": {"$ref": "#/$defs/data_type"},
+              "precision": {"type": "integer"},
+              "scale": {"type": "integer"},
+              "nullable": {"type": "boolean", "default": true},
+              "references": {"type": "string", "description": "entity.column for FK"},
+              "description": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+
+    "mapping": {
+      "type": "object",
+      "required": ["target_entity", "target_column", "source", "expression"],
+      "additionalProperties": false,
+      "properties": {
+        "target_entity": {"type": "string"},
+        "target_column": {"type": "string"},
+        "source": {"type": "string", "description": "data_source_code"},
+        "expression": {"type": "string", "description": "Canonical-dialect SQL expression over bronze columns"},
+        "filter": {"type": "string"},
+        "rule_description": {"type": "string"}
+      }
+    },
+
+    "gold_dataset": {
+      "type": "object",
+      "required": ["name", "grain", "sql"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"$ref": "#/$defs/identifier"},
+        "business_area": {"type": "string"},
+        "grain": {"type": "string"},
+        "materialization": {"enum": ["table", "view", "incremental"], "default": "table"},
+        "sql": {"type": "string", "description": "SELECT in canonical dialect, referencing silver.<entity>"},
+        "refresh": {"type": "string"},
+        "owner": {"type": "string"},
+        "description": {"type": "string"}
+      }
+    },
+
+    "metric": {
+      "type": "object",
+      "required": ["name", "dataset", "expression"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"$ref": "#/$defs/identifier"},
+        "dataset": {"type": "string"},
+        "expression": {"type": "string"},
+        "dimensions": {"type": "array", "items": {"type": "string"}},
+        "time_dimension": {"type": "string"},
+        "owner": {"type": "string"},
+        "description": {"type": "string"}
+      }
+    },
+
+    "business_check": {
+      "type": "object",
+      "required": ["rule_id", "check_type", "dataset", "severity"],
+      "additionalProperties": false,
+      "properties": {
+        "rule_id": {"type": "string", "pattern": "^BR[0-9]{3,5}$"},
+        "check_type": {"enum": ["variance_vs_history", "dimension_mapping_inconsistency", "calculated_column_accuracy", "trend_anomaly", "new_or_missing_dimension", "reconciliation", "custom_sql"]},
+        "dataset": {"type": "string"},
+        "column": {"type": "string"},
+        "params": {"type": "object"},
+        "severity": {"enum": ["error", "warning"]},
+        "owner": {"type": "string"},
+        "description": {"type": "string"}
+      }
+    }
+  }
+}

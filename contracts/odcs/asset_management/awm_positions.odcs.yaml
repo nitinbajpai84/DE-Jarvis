@@ -1,0 +1,47 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: awm_poc.awm_positions
+name: Position - Positions
+version: 0.1.0
+status: draft
+domain: asset_management
+description:
+  purpose: Daily portfolio positions
+schema:
+- name: awm_positions
+  physicalName: awm_positions
+  logicalType: object
+  physicalType: table
+  properties:
+  - name: portfolio_code
+    logicalType: string
+    physicalType: string
+    required: true
+    primaryKey: true
+    description: FK to portfolio
+  - name: as_of_date
+    logicalType: date
+    physicalType: date
+    required: true
+    primaryKey: true
+    description: Position date
+  - name: instrument_code
+    logicalType: string
+    physicalType: string
+    required: true
+    primaryKey: true
+    description: FK to instrument
+  - name: quantity
+    logicalType: number
+    physicalType: decimal
+    required: true
+    description: Units held
+  - name: market_value
+    logicalType: number
+    physicalType: decimal
+    required: true
+    description: Market value in base currency
+    quality:
+    - type: text
+      name: DQ008
+      description: 'range {''min'': ''0''}'

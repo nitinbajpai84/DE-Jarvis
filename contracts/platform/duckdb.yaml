@@ -4,5 +4,5 @@ purpose: local development and test (cost = $0)
 sql_dialect: duckdb
 dbt_adapter: dbt-duckdb
 dlt_destination: duckdb
-storage: {catalog: null, bronze: bronze, silver: silver, gold: gold, control: control}
+storage: {catalog: null, schema_pattern: "{domain}_{layer}", control: control}
 capabilities: {merge: true, scd2_snapshot: true, streaming: false, dashboards: false}

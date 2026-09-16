@@ -47,11 +47,16 @@ from typing import Any
 import yaml
 
 from emitters.control_plane import compile_source_registration, ensure_control_schema
-from emitters.sql_dialect import SqlConnection, connect as sql_connect
+from emitters.sql_dialect import SqlConnection, connect as sql_connect, resolve_schema
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-_IMPLEMENTED_RULE_TYPES = {"not_null", "unique", "accepted_values", "range", "freshness"}
+_IMPLEMENTED_RULE_TYPES = {"not_null", "unique", "accepted_values", "range", "freshness", "regex"}
+
+# regexp_matches works on both dialects unchanged (duckdb natively; sqlglot transpiles it to
+# Databricks' equivalent function) -- confirmed by checking sqlglot's function registry, not
+# assumed; if that ever stops holding, emitters/sql_dialect.py's own docstring is where the
+# next platform-specific trap for this project would get documented.
 _DUCK_TYPE_MAP = {"timestamp": "timestamp", "decimal": "double", "float": "double",
                    "int": "integer", "bigint": "bigint", "bool": "boolean"}
 
@@ -86,8 +91,26 @@ def _load_yaml(path: pathlib.Path) -> dict[str, Any]:
     return yaml.safe_load(path.read_text())
 
 
-def _load_contract(source_id: str) -> dict[str, Any]:
-    return _load_yaml(REPO_ROOT / "contracts" / "sources" / f"{source_id}.source.yaml")
+def _load_contract(source_id: str, domain: str | None = None) -> dict[str, Any]:
+    """Contracts live under contracts/sources/<domain>/<source_id>.source.yaml. domain is
+    optional on the CLI (existing callers just pass --source) -- when omitted, every domain
+    directory is searched and the source_id must be unique across all of them; pass --domain
+    explicitly only if two domains ever reuse the same source_id."""
+    base = REPO_ROOT / "contracts" / "sources"
+    if domain:
+        return _load_yaml(base / domain / f"{source_id}.source.yaml")
+    matches = sorted(base.glob(f"*/{source_id}.source.yaml"))
+    if not matches:
+        raise FileNotFoundError(
+            f"No source contract named {source_id!r} found under any domain in {base} -- "
+            "contracts are the only source of truth, refusing to guess."
+        )
+    if len(matches) > 1:
+        found = [m.parent.name for m in matches]
+        raise ValueError(
+            f"source_id {source_id!r} exists in multiple domains {found} -- pass --domain to disambiguate."
+        )
+    return _load_yaml(matches[0])
 
 
 def _load_platform(target: str) -> dict[str, Any]:
@@ -214,20 +237,25 @@ def _extract_batches(contract: dict) -> tuple[list[pathlib.Path] | None, list[Ba
 # --------------------------------------------------------------------------- FQC
 
 def _trailing_median(
-    con: SqlConnection, control: str, source_id: str, value_col: str, window: int = 7,
+    con: SqlConnection, control: str, source_id: str, domain: str, value_col: str, window: int = 7,
 ) -> float | None:
+    # domain-scoped: without this, two domains whose sources happen to share a file-name prefix
+    # (e.g. both have a "parties_*.csv" source) would pollute each other's trailing-median
+    # history -- found while building the multi-domain intake path, fixed here rather than only
+    # in the new path, since bronze_loader.py is the one engine every domain runs through.
     values = [
         r[0] for r in con.execute(
-            f"select {value_col} from {control}.file_audit where file_name like ? and action = 'loaded' "
+            f"select {value_col} from {control}.file_audit "
+            f"where file_name like ? and action = 'loaded' and domain = ? "
             "order by arrival_time desc limit ?",
-            [f"{source_id}_%", window],
+            [f"{source_id}_%", domain, window],
         ).fetchall()
     ]
     return statistics.median(values) if len(values) >= 3 else None
 
 
 def _run_fqc(
-    con: SqlConnection, control: str, source_id: str, batch: Batch, checks: dict[str, Any],
+    con: SqlConnection, control: str, source_id: str, domain: str, batch: Batch, checks: dict[str, Any],
 ) -> tuple[bool, str]:
     row_count, col_count = len(batch.rows), len(batch.header)
 
@@ -237,13 +265,13 @@ def _run_fqc(
         if checks.get("reject_on_schema_drift", True):
             return False, f"column_count {col_count} != expected_columns {checks['expected_columns']} (schema drift)"
 
-    row_median = _trailing_median(con, control, source_id, "row_count")
+    row_median = _trailing_median(con, control, source_id, domain, "row_count")
     if row_median and checks.get("row_count_deviation_pct") is not None:
         dev = abs(row_count - row_median) / row_median * 100
         if dev > checks["row_count_deviation_pct"]:
             return False, f"row_count {row_count} deviates {dev:.0f}% from trailing median {row_median:.0f}"
 
-    size_median = _trailing_median(con, control, source_id, "size_kb")
+    size_median = _trailing_median(con, control, source_id, domain, "size_kb")
     if size_median and checks.get("size_deviation_pct") is not None:
         dev = abs(batch.size_kb - size_median) / size_median * 100
         if dev > checks["size_deviation_pct"]:
@@ -305,7 +333,7 @@ def _stage_rows(
 
 def _eval_quality_rules(
     con: SqlConnection, control: str, bronze: str, source_id: str, rules: list[dict],
-    run_id: str, data_catalogue_id: int,
+    run_id: str, data_catalogue_id: int, domain: str, client: str,
 ) -> bool:
     table = f"{bronze}._staging_{source_id}"
     results: list[dict] = []
@@ -343,6 +371,12 @@ def _eval_quality_rules(
         elif rtype == "freshness":
             max_age = rule["params"]["max_age_hours"]
             failed = con.execute(f"select count(*) from {table} where date_diff('hour', \"{cols[0]}\", now()) > {max_age}").fetchone()[0]
+        elif rtype == "regex":
+            pattern = rule["params"]["pattern"]
+            failed = con.execute(
+                f'select count(*) from {table} where "{cols[0]}" is not null '
+                f'and not regexp_matches("{cols[0]}", ?)', [pattern]
+            ).fetchone()[0]
 
         passed = failed == 0
         results.append({"rule_type": rtype, "columns": ",".join(cols), "severity": severity,
@@ -353,9 +387,9 @@ def _eval_quality_rules(
     for r in results:
         result_id = con.execute(f"select coalesce(max(result_id), 0) + 1 from {control}.dq_results").fetchone()[0]
         con.execute(
-            f"insert into {control}.dq_results values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            f"insert into {control}.dq_results values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [result_id, run_id, data_catalogue_id, r["rule_type"], r["columns"], r["severity"],
-             r["passed"], r["observed_value"], r["failed_row_count"], now],
+             r["passed"], r["observed_value"], r["failed_row_count"], now, domain, client],
         )
     return batch_ok
 
@@ -372,12 +406,16 @@ def _quarantine_batch(batch: Batch, files: list[pathlib.Path] | None, quarantine
 
 # --------------------------------------------------------------------------- run
 
-def run(source_id: str, target: str = "duckdb") -> dict[str, Any]:
-    contract = _load_contract(source_id)
+def run(source_id: str, target: str = "duckdb", domain: str | None = None) -> dict[str, Any]:
+    contract = _load_contract(source_id, domain)
     platform = _load_platform(target)
 
-    control = platform["storage"]["control"]
-    bronze = platform["storage"]["bronze"]
+    # domain/client are the contract's own, not re-derived -- the workbook (via
+    # catalogue_compiler.py) is the one place that decides them, per CLAUDE.md rule 1.
+    domain = contract["domain"]
+    client = contract.get("client", "default")
+    control = resolve_schema(platform, domain, "control")
+    bronze = resolve_schema(platform, domain, "bronze")
 
     run_id = str(uuid.uuid4())
     started_at = datetime.now(timezone.utc)
@@ -391,7 +429,7 @@ def run(source_id: str, target: str = "duckdb") -> dict[str, Any]:
         con = sql_connect(target, platform)
         ensure_control_schema(con, control)
         con.execute(f"create schema if not exists {bronze}")
-        compile_source_registration(con, contract, control)
+        compile_source_registration(con, contract, control, bronze)
 
         quarantine_dir = REPO_ROOT / contract["file_checks"]["quarantine_path"]
         quarantine_dir.mkdir(parents=True, exist_ok=True)
@@ -413,8 +451,8 @@ def run(source_id: str, target: str = "duckdb") -> dict[str, Any]:
             # yesterday's) silently duplicates every previously-accepted row on each run, and
             # skews _run_fqc's trailing-median deviation check with repeated identical history.
             already_loaded = con.execute(
-                f"select 1 from {control}.file_audit where file_name = ? and action = 'loaded' limit 1",
-                [batch.name],
+                f"select 1 from {control}.file_audit where file_name = ? and action = 'loaded' and domain = ? limit 1",
+                [batch.name, domain],
             ).fetchone()
             if already_loaded:
                 counts["files_skipped"] = counts.get("files_skipped", 0) + 1
@@ -425,33 +463,33 @@ def run(source_id: str, target: str = "duckdb") -> dict[str, Any]:
             if is_unstructured:
                 fqc_passed, _ = _run_fqc_unstructured(files, contract["file_checks"])
             else:
-                fqc_passed, _ = _run_fqc(con, control, source_id, batch, contract["file_checks"])
+                fqc_passed, _ = _run_fqc(con, control, source_id, domain, batch, contract["file_checks"])
 
             file_audit_id = con.execute(f"select coalesce(max(file_audit_id), 0) + 1 from {control}.file_audit").fetchone()[0]
 
             if not fqc_passed:
                 _quarantine_batch(batch, files, quarantine_dir)
                 con.execute(
-                    f"insert into {control}.file_audit values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    f"insert into {control}.file_audit values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     [file_audit_id, run_id, batch.name, batch.location, batch.size_kb, len(batch.rows),
-                     len(batch.header), batch.checksum, arrival_time, False, "quarantined"],
+                     len(batch.header), batch.checksum, arrival_time, False, "quarantined", domain, client],
                 )
                 counts["files_quarantined"] += 1
                 continue
 
             data_catalogue_id = con.execute(f"select coalesce(max(data_catalogue_id), 0) + 1 from {control}.data_object_catalogue").fetchone()[0]
             _stage_rows(con, bronze, source_id, schema, batch, run_id, data_catalogue_id)
-            batch_ok = _eval_quality_rules(con, control, bronze, source_id, contract.get("quality_rules", []), run_id, data_catalogue_id)
+            batch_ok = _eval_quality_rules(con, control, bronze, source_id, contract.get("quality_rules", []), run_id, data_catalogue_id, domain, client)
 
             con.execute(
-                f"insert into {control}.file_audit values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                f"insert into {control}.file_audit values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [file_audit_id, run_id, batch.name, batch.location, batch.size_kb, len(batch.rows),
-                 len(batch.header), batch.checksum, arrival_time, True, "loaded" if batch_ok else "quarantined"],
+                 len(batch.header), batch.checksum, arrival_time, True, "loaded" if batch_ok else "quarantined", domain, client],
             )
             con.execute(
-                f"insert into {control}.data_object_catalogue values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                f"insert into {control}.data_object_catalogue values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [data_catalogue_id, source_id, batch.name, batch.location, len(batch.rows), batch.size_kb,
-                 batch.checksum, arrival_time, "loaded" if batch_ok else "quarantined"],
+                 batch.checksum, arrival_time, "loaded" if batch_ok else "quarantined", domain, client],
             )
 
             if batch_ok:
@@ -479,10 +517,10 @@ def run(source_id: str, target: str = "duckdb") -> dict[str, Any]:
             pass
         else:
             con.execute(
-                f"insert into {control}.run_registry values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                f"insert into {control}.run_registry values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [run_id, source_id, "bronze", started_at, datetime.now(timezone.utc), status, error_message,
                  counts["files_seen"], counts["files_accepted"], counts["files_quarantined"],
-                 counts["rows_loaded"], len(schema)],
+                 counts["rows_loaded"], len(schema), domain, client],
             )
             con.close()
 
@@ -491,7 +529,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", required=True)
     parser.add_argument("--target", default="duckdb")
+    parser.add_argument("--domain", default=None, help="only needed if source_id isn't unique across domains")
     args = parser.parse_args()
-    summary = run(args.source, args.target)
+    summary = run(args.source, args.target, args.domain)
     for k, v in summary.items():
         print(f"{k:<18} {v}")

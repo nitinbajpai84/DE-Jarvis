@@ -16,15 +16,16 @@ from datetime import datetime, timezone
 import yaml
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-from emitters.sql_dialect import connect as sql_connect  # noqa: E402
+from emitters.sql_dialect import connect as sql_connect, resolve_schema  # noqa: E402
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT_PATH = REPO_ROOT / "harness" / "dashboard.html"
+DOMAIN = "insurance"  # this snapshot is scoped to one domain -- see the multi-domain design
 
 
 def _contract(source_id: str) -> dict:
-    p = REPO_ROOT / "contracts" / "sources" / f"{source_id}.source.yaml"
-    return yaml.safe_load(p.read_text()) if p.exists() else {}
+    matches = list((REPO_ROOT / "contracts" / "sources").glob(f"*/{source_id}.source.yaml"))
+    return yaml.safe_load(matches[0].read_text()) if matches else {}
 
 
 def _load_platform(target: str) -> dict:
@@ -33,10 +34,12 @@ def _load_platform(target: str) -> dict:
 
 def gather(target: str = "duckdb") -> dict:
     platform = _load_platform(target)
-    control, bronze = platform["storage"]["control"], platform["storage"]["bronze"]
+    control = resolve_schema(platform, DOMAIN, "control")
+    bronze = resolve_schema(platform, DOMAIN, "bronze")
     con = sql_connect(target, platform)
     sources = [r[0] for r in con.execute(
-        f"select distinct source_id from {control}.run_registry order by source_id"
+        f"select distinct source_id from {control}.run_registry where domain = ? order by source_id",
+        [DOMAIN],
     ).fetchall()]
 
     out = {"generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

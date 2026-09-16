@@ -1,0 +1,40 @@
+# Contract schema: GOLD / SEMANTIC. Compiled from docs/templates/jarvis_intake_template.xlsx -- do not hand-edit.
+$schema: jarvis/gold/v1
+domain: asset_management
+client: default
+consumers:
+- bi_dashboard
+- finance_export
+metrics:
+- name: total_market_value
+  expression: SUM(market_value)
+  grain:
+  - portfolio_code
+  owner: investments
+- name: holdings_count
+  expression: COUNT(DISTINCT instrument_code)
+  grain:
+  - portfolio_code
+  owner: investments
+business_rules:
+- id: BR001
+  statement: Every portfolio in gold must exist in the current portfolio dimension
+  applies_to:
+  - mart_awm_portfolio_value
+  check_type: new_or_missing_dimension
+  dataset: mart_awm_portfolio_value
+  column: portfolio_code
+  params:
+    reference: silver.dim_awm_portfolio
+  severity: error
+marts:
+- name: mart_awm_portfolio_value
+  source_fact: fact_awm_position
+  join_dimensions: []
+  grain:
+  - portfolio_code
+  metrics:
+  - total_market_value
+  - holdings_count
+  materialisation: table
+dashboards: []

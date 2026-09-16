@@ -89,6 +89,19 @@ class SqlConnection:
         self._raw.close()
 
 
+def resolve_schema(platform: dict[str, Any], domain: str, layer: str) -> str:
+    """Maps (domain, layer) -> an actual schema name, per the multi-domain design: one shared
+    catalog (per platform), schemas named '{domain}_bronze' / '{domain}_silver' / '{domain}_gold'
+    so multiple domains coexist without colliding, and ONE shared 'control' schema across every
+    domain -- run_registry etc. carry their own domain/client columns instead of being split
+    per-domain, so the Control Room gets a single unified view instead of needing cross-schema
+    joins. layer is one of 'bronze', 'silver', 'gold', 'control'."""
+    storage = platform["storage"]
+    if layer == "control":
+        return storage["control"]
+    return storage["schema_pattern"].format(domain=domain, layer=layer)
+
+
 def connect(target: str, platform: dict[str, Any]) -> SqlConnection:
     """target is also the sqlglot dialect name -- both duckdb and databricks are valid values
     for each. If a future platform's storage engine and SQL dialect ever diverge, this is the

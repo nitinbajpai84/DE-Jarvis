@@ -4,7 +4,7 @@ purpose: platform validation on Databricks Free Edition
 sql_dialect: databricks
 dbt_adapter: dbt-databricks
 dlt_destination: databricks
-storage: {catalog: jarvis, bronze: bronze, silver: silver, gold: gold, control: control}
+storage: {catalog: jarvis, schema_pattern: "{domain}_{layer}", control: control}
 capabilities: {merge: true, scd2_snapshot: true, streaming: true, dashboards: true}
 constraints:
   # Verified against current Databricks Free Edition documentation
