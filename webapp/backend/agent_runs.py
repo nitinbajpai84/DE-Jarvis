@@ -153,8 +153,15 @@ def _inspect_pending(thread_id: str) -> dict[str, Any] | None:
         return None
     interrupt = snapshot.interrupts[0]
     value = interrupt.value if hasattr(interrupt, "value") else interrupt
-    return {"action_requests": value.get("action_requests", []),
-           "review_configs": value.get("review_configs", [])}
+    requests = value.get("action_requests", [])
+    # Which gate is this? The graph only knows a tool name; the journey view needs the gate's
+    # identity (G1..G4, which step it sits on, what it approves) so an approval screen can say
+    # what is actually being decided instead of just echoing a function name at the customer.
+    from agents.gates import GATE_BY_TOOL
+    gate = next((GATE_BY_TOOL[r["name"]] for r in requests if r.get("name") in GATE_BY_TOOL), None)
+    return {"action_requests": requests,
+            "review_configs": value.get("review_configs", []),
+            "gate": gate}
 
 
 def start_run(workbook_path: str, domain_hint: str, started_by: str = "control-room") -> dict[str, Any]:

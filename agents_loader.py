@@ -31,7 +31,16 @@ AGENT_DIR = pathlib.Path(__file__).parent / ".claude" / "agents"
 FRONTMATTER = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.S)
 CHECKPOINT_DB = pathlib.Path(__file__).parent / "harness" / "agent_checkpoints.sqlite"
 
-GATE_INTERRUPTS = {"write_intake_contracts": True}
+def _gate_interrupts() -> dict[str, bool]:
+    """Derived from agents/gates.py, never hand-listed here. That registry is also what the
+    Control Room's journey view renders from, so a gate cannot be drawn in the UI without
+    actually interrupting this graph, and cannot interrupt this graph without being drawn --
+    the two used to be separate lists and were free to drift."""
+    from agents.gates import live_gate_tools
+    return {tool: True for tool in live_gate_tools()}
+
+
+GATE_INTERRUPTS = _gate_interrupts()
 
 PERMISSIONS_MODULE_AVAILABLE = True
 try:

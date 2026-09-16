@@ -34,7 +34,7 @@ if _env_path.exists():
             _k, _v = _line.split("=", 1)
             os.environ.setdefault(_k.strip(), _v.strip())
 
-from webapp.backend import agent_runs, pipeline, sdlc, uploads  # noqa: E402
+from webapp.backend import agent_runs, journey, pipeline, sdlc, uploads  # noqa: E402
 
 app = FastAPI(title="Jarvis Control Room")
 
@@ -121,6 +121,16 @@ def api_pipeline_flow(target: str = "duckdb", domain: str = pipeline.DEFAULT_DOM
 def api_alerts(target: str = "duckdb", domain: str = pipeline.DEFAULT_DOMAIN):
     try:
         return pipeline.recent_alerts(target, domain=domain)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/api/journey")
+def api_journey(domain: str = pipeline.DEFAULT_DOMAIN, target: str = "duckdb"):
+    """The five-step journey plus where this domain actually stands in it. Renders from
+    agents/gates.py, the same registry that decides what interrupts the agent graph."""
+    try:
+        return journey.journey(domain, target)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

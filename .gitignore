@@ -19,3 +19,5 @@ harness/dashboard_*.html
 harness/agent_dashboard.html
 harness/insights_report.html
 webapp/uploads/
+
+harness/_uv*.log

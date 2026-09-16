@@ -258,10 +258,281 @@ def run_regression_tests(target: str, run_id: str, domain: str) -> str:
     return _json({"ok": ok, "stdout": proc.stdout[-4000:], "stderr": proc.stderr[-2000:]})
 
 
+# ---------------------------------------------------------------------------------------
+# Gate tools (see agents/gates.py for the registry that makes these interrupt points).
+#
+# Every one of these bodies runs ONLY after a human has approved -- that is what the langgraph
+# interrupt guarantees -- so writing "APPROVED" into the record from inside the tool is a
+# statement of fact, not an assumption.
+#
+# They also re-derive their own evidence instead of trusting a `summary` argument from the
+# model. A gate whose blocking rule is evaluated against text the model wrote is not a gate:
+# the thing being checked and the thing doing the checking would be the same author. So
+# accept_catalogue recompiles the workbook itself, and the two accept_* tools below read back
+# evidence a prior tool persisted to disk. If that evidence is missing or failing, the gate
+# refuses even though a human clicked Approve -- the human is approving the evidence, and there
+# has to be evidence.
+# ---------------------------------------------------------------------------------------
+
+GATE_RECORD_DIR = REPO_ROOT / "evidence" / "gates"
+GATE_EVIDENCE_DIR = REPO_ROOT / "evidence" / "runs"
+
+
+def _write_gate_record(gate_id: str, gate_name: str, run_id: str, domain: str,
+                       approved: list[str], sections: str = "") -> pathlib.Path:
+    """Writes the gate record in the same shape as evidence/gates/TEMPLATE-gate.md, which the
+    hand-written P1 records already follow -- one format whether a human or an agent ran the
+    gate, so the evidence trail doesn't fork by author."""
+    GATE_RECORD_DIR.mkdir(parents=True, exist_ok=True)
+    path = GATE_RECORD_DIR / f"{run_id[:8]}-{gate_id}.md"
+    body = [
+        "# Gate Record", "",
+        f"Run:              {run_id}",
+        f"Gate:             {gate_id} {gate_name}",
+        f"Domain:           {domain}",
+        f"Date:             {datetime.now(timezone.utc).isoformat()}",
+        "Approver (human): via Control Room approval (langgraph interrupt resume)", "",
+        "## Decision", "APPROVED", "",
+        "## What was approved",
+    ]
+    body += [f"- {line}" for line in approved]
+    if sections:
+        body += ["", sections]
+    body += ["", "## How this was enforced",
+             "The agent graph paused before this tool ran and could not proceed without a human",
+             "decision. The evidence above was re-derived by the tool itself, not taken from the",
+             "model's own summary.", ""]
+    path.write_text("\n".join(body))
+    return path
+
+
+def _evidence_path(run_id: str, kind: str) -> pathlib.Path:
+    return GATE_EVIDENCE_DIR / f"{run_id[:8]}-{kind}.json"
+
+
+@tool
+def accept_catalogue(workbook_path: str, run_id: str) -> str:
+    """G1 GATE -- records the customer's acceptance of the compiled catalogue and intent.
+    Pauses for human approval before it runs. Recompiles the workbook itself to check G1's
+    blocking rule (open questions must be EMPTY) rather than trusting a summary, and REFUSES
+    even after approval if any open question remains -- an unanswered ambiguity is a blocker,
+    not a note. Writes evidence/gates/<run>-G1.md on success.
+
+    Args:
+        workbook_path: path to the filled-in intake .xlsx that was previewed
+        run_id: the sdlc_run id this action belongs to
+    """
+    spec, errors = intake_compiler.compile_workbook(pathlib.Path(workbook_path))
+    if errors:
+        return _json({"ok": False, "errors": errors})
+    compiled = intake_compiler.spec_to_contracts(spec)
+    domain = spec["project"]["domain"]
+    open_qs = [oq for s in compiled["sources"] for oq in s.get("open_questions", [])]
+    open_qs += compiled["model"].get("open_questions", [])
+    if open_qs:
+        _log("duckdb", domain, run_id, "freeze", "human+system", "failed",
+             f"G1 refused: {len(open_qs)} open question(s) still unanswered")
+        return _json({"ok": False, "gate": "G1", "refused": True, "open_questions": open_qs,
+                      "reason": "G1 cannot pass while open questions remain. Resolve them in the "
+                                "workbook and re-preview."})
+    record = _write_gate_record(
+        "G1", "Catalogue & intent", run_id, domain,
+        approved=[
+            f"Domain: {domain} (client {spec['project'].get('client', 'default')})",
+            f"Sources mapped: {', '.join(s['source_id'] for s in compiled['sources'])}",
+            f"Dimensions: {', '.join(d['name'] for d in compiled['model']['dimensions']) or 'none'}",
+            f"Facts: {', '.join(f['name'] for f in compiled['model']['facts']) or 'none'}",
+            f"Gold marts: {', '.join(m['name'] for m in compiled['gold']['marts']) or 'none'}",
+        ],
+        sections="## Open Questions status\nAll closed?  YES\n",
+    )
+    _log("duckdb", domain, run_id, "freeze", "human+system", "completed",
+         f"G1 accepted: catalogue for domain={domain!r}, 0 open questions")
+    return _json({"ok": True, "gate": "G1", "domain": domain, "record": str(record)})
+
+
+@tool
+def gather_validation_pack(domain: str, target: str, run_id: str) -> str:
+    """Assembles the evidence a human needs at the G3 validation gate, and persists it so the
+    gate tool can read it back instead of trusting a summary: the regression suite result, the
+    data-quality results recorded for this domain, and the live row/table counts per layer.
+    Ungated -- this only reads. Call this before accept_validation.
+
+    Args:
+        domain: the domain being validated
+        target: 'duckdb' or 'databricks'
+        run_id: the sdlc_run id this action belongs to
+    """
+    import json
+    proc = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/test_pipeline.py", "-q", f"--target={target}"],
+        cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=300,
+    )
+    tests_ok = proc.returncode == 0
+
+    con, control = _control_con(target, domain)
+    try:
+        dq = con.execute(
+            f"select rule_type, columns, severity, passed, failed_row_count from {control}.dq_results "
+            f"where domain = ? order by evaluated_at desc limit 50", [domain],
+        ).fetchall()
+    finally:
+        con.close()
+    dq_rows = [{"rule": r[0], "column": r[1], "severity": r[2], "passed": bool(r[3]),
+                "failed_rows": r[4]} for r in dq]
+    dq_failed = [d for d in dq_rows if not d["passed"]]
+
+    from webapp.backend.pipeline import pipeline_flow
+    flow = pipeline_flow(target, domain)
+    layers = {p: {"tables": L["table_count"], "rows": L["rows"]} for p, L in flow["layers"].items()}
+
+    pack = {
+        "domain": domain, "target": target,
+        "tests": {"passed": tests_ok, "output": proc.stdout[-1200:]},
+        "dq": {"checked": len(dq_rows), "failed": len(dq_failed), "failures": dq_failed[:10]},
+        "layers": layers,
+        "gathered_at": datetime.now(timezone.utc).isoformat(),
+    }
+    GATE_EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    _evidence_path(run_id, "validation").write_text(json.dumps(pack, indent=2, default=str))
+    _log(target, domain, run_id, "validate", "test-manager",
+         "completed" if tests_ok and not dq_failed else "failed",
+         f"validation pack: tests {'passed' if tests_ok else 'FAILED'}, "
+         f"{len(dq_failed)}/{len(dq_rows)} DQ checks failing")
+    return _json(pack)
+
+
+@tool
+def accept_validation(domain: str, target: str, run_id: str) -> str:
+    """G3 GATE -- records the customer's UAT/validation sign-off. Pauses for human approval
+    before it runs. Reads back the pack gather_validation_pack persisted for this run and
+    REFUSES if it is missing, or if the regression suite failed, or if any data-quality check
+    is failing -- approval is approval OF evidence, so there has to be passing evidence.
+    Writes evidence/gates/<run>-G3.md on success.
+
+    Args:
+        domain: the domain being signed off
+        target: 'duckdb' or 'databricks'
+        run_id: the sdlc_run id this action belongs to
+    """
+    import json
+    path = _evidence_path(run_id, "validation")
+    if not path.exists():
+        return _json({"ok": False, "gate": "G3", "refused": True,
+                      "reason": "No validation pack for this run -- call gather_validation_pack first."})
+    pack = json.loads(path.read_text())
+    if not pack["tests"]["passed"] or pack["dq"]["failed"]:
+        _log(target, domain, run_id, "validate", "human+system", "failed",
+             f"G3 refused: tests_passed={pack['tests']['passed']}, dq_failing={pack['dq']['failed']}")
+        return _json({"ok": False, "gate": "G3", "refused": True,
+                      "reason": "Validation evidence is not clean.",
+                      "tests_passed": pack["tests"]["passed"], "dq_failing": pack["dq"]["failed"]})
+    layers = ", ".join(f"{p}: {v['tables']} tables / {v['rows']} rows" for p, v in pack["layers"].items())
+    record = _write_gate_record(
+        "G3", "Validation / UAT", run_id, domain,
+        approved=[f"Target platform: {target}", f"Layers: {layers}",
+                  f"Data-quality checks: {pack['dq']['checked']} evaluated, 0 failing"],
+        sections=f"## Tests\nRun:      regression suite on {target}\nPassed:   YES\n",
+    )
+    _log(target, domain, run_id, "validate", "human+system", "completed",
+         f"G3 accepted: validation signed off for domain={domain!r}")
+    return _json({"ok": True, "gate": "G3", "record": str(record)})
+
+
+@tool
+def run_ops_readiness(domain: str, target: str, run_id: str) -> str:
+    """Ops readiness check for the G4 gate: runs the WHOLE pipeline end to end for this domain
+    -- every source to bronze, then silver, then gold -- and reports what each layer holds
+    afterwards. Persists the result so accept_go_live can read it back. Ungated, but it does
+    write data (re-running an idempotent, domain-scoped pipeline), so expect it to take a while.
+
+    Args:
+        domain: the domain to exercise
+        target: 'duckdb' or 'databricks'
+        run_id: the sdlc_run id this action belongs to
+    """
+    import json
+    from emitters.bronze_loader import run as bronze_run
+    from emitters.silver_transform import run as silver_run
+    from emitters.gold_transform import run as gold_run
+
+    src_dir = REPO_ROOT / "contracts" / "sources" / domain
+    sources = sorted(p.name.replace(".source.yaml", "") for p in src_dir.glob("*.source.yaml"))
+    steps, failures = [], []
+    for sid in sources:
+        try:
+            bronze_run(sid, target)
+            steps.append({"step": f"bronze:{sid}", "ok": True})
+        except Exception as exc:  # noqa: BLE001 -- a readiness check reports failures, doesn't raise them
+            steps.append({"step": f"bronze:{sid}", "ok": False, "error": str(exc)})
+            failures.append(f"bronze:{sid}")
+    for name, fn in (("silver", silver_run), ("gold", gold_run)):
+        try:
+            fn(domain, target)
+            steps.append({"step": name, "ok": True})
+        except Exception as exc:  # noqa: BLE001
+            steps.append({"step": name, "ok": False, "error": str(exc)})
+            failures.append(name)
+
+    from webapp.backend.pipeline import pipeline_flow
+    flow = pipeline_flow(target, domain)
+    report = {
+        "domain": domain, "target": target, "sources": sources,
+        "steps": steps, "failures": failures, "ready": not failures,
+        "layers": {p: {"tables": L["table_count"], "rows": L["rows"]} for p, L in flow["layers"].items()},
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }
+    GATE_EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    _evidence_path(run_id, "readiness").write_text(json.dumps(report, indent=2, default=str))
+    _log(target, domain, run_id, "operate", "ops-monitor", "completed" if not failures else "failed",
+         f"ops readiness: {len(steps) - len(failures)}/{len(steps)} steps clean")
+    return _json(report)
+
+
+@tool
+def accept_go_live(domain: str, target: str, run_id: str) -> str:
+    """G4 GATE -- records go-live sign-off, handing the pipeline to the daily schedule and the
+    on-call loop. Pauses for human approval before it runs. Reads back the report
+    run_ops_readiness persisted for this run and REFUSES if it is missing or if any step of the
+    end-to-end run failed. Writes evidence/gates/<run>-G4.md on success.
+
+    Args:
+        domain: the domain going live
+        target: 'duckdb' or 'databricks'
+        run_id: the sdlc_run id this action belongs to
+    """
+    import json
+    path = _evidence_path(run_id, "readiness")
+    if not path.exists():
+        return _json({"ok": False, "gate": "G4", "refused": True,
+                      "reason": "No readiness report for this run -- call run_ops_readiness first."})
+    report = json.loads(path.read_text())
+    if not report["ready"]:
+        _log(target, domain, run_id, "operate", "human+system", "failed",
+             f"G4 refused: {len(report['failures'])} failing step(s): {report['failures']}")
+        return _json({"ok": False, "gate": "G4", "refused": True,
+                      "reason": "The end-to-end readiness run did not come back clean.",
+                      "failures": report["failures"]})
+    layers = ", ".join(f"{p}: {v['tables']} tables / {v['rows']} rows" for p, v in report["layers"].items())
+    record = _write_gate_record(
+        "G4", "Go-live readiness", run_id, domain,
+        approved=[f"Target platform: {target}",
+                  f"End-to-end run: {len(report['steps'])} steps, all clean",
+                  f"Sources exercised: {', '.join(report['sources'])}",
+                  f"Layers: {layers}"],
+        sections="## Rollback\nContracts are versioned in git; re-running is idempotent and domain-scoped.\n",
+    )
+    _log(target, domain, run_id, "operate", "human+system", "completed",
+         f"G4 accepted: {domain!r} handed to the daily schedule on {target}")
+    return _json({"ok": True, "gate": "G4", "record": str(record)})
+
+
 def _json(obj: Any) -> str:
     import json
     return json.dumps(obj, default=str)
 
 
 ALL_TOOLS = [compile_intake_preview, write_intake_contracts, run_bronze_source,
-             run_silver_domain, run_gold_domain, run_regression_tests]
+             run_silver_domain, run_gold_domain, run_regression_tests,
+             accept_catalogue, gather_validation_pack, accept_validation,
+             run_ops_readiness, accept_go_live]

@@ -17,19 +17,19 @@
   }
   *{box-sizing:border-box;}
   body{background:var(--bg);color:var(--text-primary);font-family:'IBM Plex Sans',system-ui,sans-serif;
-       margin:0;padding:28px 20px 60px;-webkit-font-smoothing:antialiased;}
-  h1,h2,h3{font-family:'Sora',system-ui,sans-serif;text-wrap:balance;margin:0;}
+       margin:0;padding:0;-webkit-font-smoothing:antialiased;}
+  h1,h2,h3,h4{font-family:'Sora',system-ui,sans-serif;text-wrap:balance;margin:0;}
   .mono{font-family:'IBM Plex Mono',ui-monospace,monospace;}
-  .wrap{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:22px;}
   button{font-family:inherit;}
 
-  .header{display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between;
-          padding-bottom:18px;border-bottom:1px solid var(--border-soft);}
-  .brand{display:flex;align-items:center;gap:14px;}
-  .mark{width:42px;height:42px;flex:none;}
-  .brand-text h1{font-size:22px;font-weight:700;letter-spacing:.2px;}
-  .brand-text .sub{font-size:12.5px;color:var(--text-muted);margin-top:2px;}
-  .header-right{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+  /* ---------------- top bar ---------------- */
+  .topbar{display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between;
+          padding:18px 24px;border-bottom:1px solid var(--border-soft);background:var(--bg-panel);}
+  .brand{display:flex;align-items:center;gap:13px;}
+  .mark{width:38px;height:38px;flex:none;}
+  .brand-text h1{font-size:19px;font-weight:700;letter-spacing:.2px;}
+  .brand-text .sub{font-size:11.5px;color:var(--text-muted);margin-top:2px;}
+  .header-right{display:flex;gap:9px;align-items:center;flex-wrap:wrap;}
   select#target,select#domain{
     background:var(--bg-panel-2);border:1px solid var(--border);color:var(--text-primary);
     font-size:12.5px;padding:7px 12px;border-radius:20px;font-family:inherit;cursor:pointer;
@@ -45,77 +45,136 @@
   .live-badge .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:blink 1.6s infinite;}
   @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
 
-  .panel{background:var(--bg-panel);border:1px solid var(--border);border-radius:16px;
-         padding:22px 22px 24px;box-shadow:var(--shadow);}
-  .panel-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:18px;flex-wrap:wrap;}
-  .panel-head h2{font-size:16px;font-weight:700;}
-  .panel-head .eyebrow{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:4px;display:block;}
-  .panel-head .note{font-size:12.5px;color:var(--text-muted);}
+  /* ---------------- shell: rail + stage ---------------- */
+  .shell{display:grid;grid-template-columns:268px 1fr;min-height:calc(100vh - 76px);align-items:start;}
+  .rail{border-right:1px solid var(--border-soft);padding:20px 14px 40px;position:sticky;top:0;
+        display:flex;flex-direction:column;gap:3px;}
+  .rail-title{font-family:'IBM Plex Mono';font-size:10px;letter-spacing:1.6px;text-transform:uppercase;
+              color:var(--text-muted);padding:0 10px 10px;}
+  .step-btn{display:grid;grid-template-columns:30px 1fr;gap:11px;align-items:start;text-align:left;
+            padding:11px 10px;border-radius:10px;background:transparent;border:1px solid transparent;
+            cursor:pointer;color:var(--text-secondary);width:100%;}
+  .step-btn:hover{background:var(--bg-panel-2);}
+  .step-btn.sel{background:var(--bg-panel-2);border-color:var(--border);}
+  .step-btn .sn{font-family:'IBM Plex Mono';font-size:11px;color:var(--text-muted);
+                border:1px solid var(--border);border-radius:7px;padding:4px 0;text-align:center;}
+  .step-btn.sel .sn{color:var(--accent);border-color:rgba(47,224,198,.45);}
+  .step-btn .sname{font-family:'Sora';font-size:13px;font-weight:600;color:var(--text-primary);line-height:1.3;}
+  .step-btn .smeta{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;align-items:center;}
+  .cap{font-size:9.5px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;padding:2px 7px;border-radius:20px;}
+  .cap.live{background:rgba(63,192,122,.13);color:var(--good);}
+  .cap.partial{background:rgba(227,172,62,.13);color:var(--warning);}
+  .cap.planned{background:rgba(91,104,128,.16);color:var(--text-muted);}
+  .gbadge{font-family:'IBM Plex Mono';font-size:9.5px;font-weight:600;padding:2px 6px;border-radius:5px;
+          background:var(--bg-raised);color:var(--text-muted);border:1px solid var(--border-soft);}
+  .gbadge.passed{color:var(--good);border-color:rgba(63,192,122,.35);}
+  .gbadge.pending{color:var(--gold);border-color:rgba(240,193,90,.5);animation:blink 1.4s infinite;}
 
-  .flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:0;align-items:stretch;}
-  @media (max-width:820px){.flow{grid-template-columns:1fr;gap:14px;} .flow .arrow{display:none;}}
-  .layer-card{background:var(--bg-panel-2);border:1px solid var(--border);border-radius:14px;padding:18px;
-              display:flex;flex-direction:column;gap:12px;position:relative;overflow:hidden;}
+  .stage{padding:26px 28px 70px;min-width:0;max-width:1180px;}
+
+  /* ---------------- screen header ---------------- */
+  .screen-head{margin-bottom:22px;}
+  .screen-head .eyebrow{font-family:'IBM Plex Mono';font-size:10.5px;letter-spacing:1.6px;
+                        text-transform:uppercase;color:var(--accent);}
+  .screen-head h2{font-size:23px;font-weight:700;margin-top:6px;}
+  .screen-head .tagline{font-size:13.5px;color:var(--text-secondary);margin-top:7px;max-width:74ch;}
+  .who-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:13px;}
+  .who{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:20px;font-size:11.5px;
+       background:var(--bg-panel-2);border:1px solid var(--border-soft);color:var(--text-secondary);}
+  .who i{width:7px;height:7px;border-radius:50%;background:var(--c);flex:none;}
+  .who b{color:var(--text-primary);font-weight:600;}
+
+  .panel{background:var(--bg-panel);border:1px solid var(--border);border-radius:16px;
+         padding:20px 20px 22px;box-shadow:var(--shadow);margin-bottom:18px;}
+  .panel-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:16px;flex-wrap:wrap;}
+  .panel-head h3{font-size:15px;font-weight:700;}
+  .panel-head .note{font-size:12px;color:var(--text-muted);}
+
+  /* ---------------- gap notice ---------------- */
+  .gap{display:grid;grid-template-columns:auto 1fr;gap:11px;align-items:start;padding:13px 15px;
+       border-radius:11px;background:rgba(91,104,128,.07);border:1px dashed var(--border);margin-bottom:18px;}
+  .gap .ic{font-family:'IBM Plex Mono';font-size:11px;color:var(--text-muted);padding-top:1px;}
+  .gap .tx{font-size:12.5px;color:var(--text-muted);line-height:1.6;}
+  .gap .tx b{color:var(--text-secondary);font-weight:600;}
+
+  /* ---------------- gates ---------------- */
+  .gate{border-radius:12px;padding:15px 17px;margin-bottom:12px;border:1px solid var(--border-soft);
+        background:var(--bg-panel-2);}
+  .gate.pending{border-color:rgba(240,193,90,.45);background:rgba(240,193,90,.06);}
+  .gate.passed{border-color:rgba(63,192,122,.3);}
+  .gate-top{display:flex;flex-wrap:wrap;gap:9px;align-items:center;}
+  .gid{font-family:'IBM Plex Mono';font-size:12px;font-weight:600;color:var(--gold);}
+  .gate.planned .gid{color:var(--text-muted);}
+  .gate.passed .gid{color:var(--good);}
+  .gname{font-family:'Sora';font-size:14px;font-weight:600;}
+  .gstate{margin-left:auto;font-size:9.5px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;
+          padding:3px 9px;border-radius:20px;}
+  .gstate.pending{background:rgba(240,193,90,.16);color:var(--gold);animation:blink 1.5s infinite;}
+  .gstate.passed{background:rgba(63,192,122,.13);color:var(--good);}
+  .gstate.waiting{background:rgba(91,104,128,.16);color:var(--text-muted);}
+  .gstate.planned{background:rgba(91,104,128,.16);color:var(--text-muted);}
+  .gapproves{font-size:12.5px;color:var(--text-secondary);margin-top:9px;}
+  .grule{font-size:11.5px;color:var(--text-muted);margin-top:7px;padding-left:11px;border-left:2px solid var(--border);}
+  .grec{font-family:'IBM Plex Mono';font-size:10.5px;color:var(--good);margin-top:9px;}
+  .gargs{font-family:'IBM Plex Mono';font-size:10.5px;color:var(--text-secondary);background:var(--bg-raised);
+         border-radius:7px;padding:9px 11px;margin:10px 0 0;white-space:pre-wrap;word-break:break-word;max-height:190px;overflow:auto;}
+  .gate-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
+
+  /* ---------------- attention bar ---------------- */
+  .attn{border:1px solid rgba(240,193,90,.5);background:rgba(240,193,90,.08);border-radius:13px;
+        padding:14px 17px;margin-bottom:20px;display:flex;flex-wrap:wrap;gap:11px 15px;align-items:center;}
+  .attn .lbl{font-family:'IBM Plex Mono';font-size:10px;letter-spacing:1.2px;text-transform:uppercase;
+             color:var(--gold);font-weight:600;}
+  .attn .tx{font-size:13px;color:var(--text-secondary);flex:1;min-width:220px;}
+  .attn .tx b{color:var(--text-primary);font-weight:600;}
+
+  /* ---------------- stat tiles ---------------- */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:11px;}
+  .stat{background:var(--bg-panel-2);border:1px solid var(--border-soft);border-radius:11px;padding:14px 15px;}
+  .stat b{display:block;font-family:'IBM Plex Mono';font-size:21px;font-weight:600;}
+  .stat span{font-size:10.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;}
+  .stat.muted b{color:var(--text-muted);}
+
+  /* ---------------- medallion flow ---------------- */
+  .flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:stretch;}
+  @media (max-width:900px){.flow{grid-template-columns:1fr;gap:12px;} .flow .arrow{display:none;}}
+  .layer-card{background:var(--bg-panel-2);border:1px solid var(--border);border-radius:14px;padding:16px;
+              display:flex;flex-direction:column;gap:11px;position:relative;overflow:hidden;}
   .layer-card::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--layer-color);}
   .layer-top{display:flex;justify-content:space-between;align-items:center;}
-  .layer-name{font-family:'Sora';font-weight:700;font-size:15px;color:var(--layer-color);letter-spacing:.3px;}
-  .layer-status{font-size:10.5px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;padding:3px 9px;border-radius:20px;}
+  .layer-name{font-family:'Sora';font-weight:700;font-size:14.5px;color:var(--layer-color);}
+  .layer-status{font-size:10px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;padding:3px 9px;border-radius:20px;}
   .layer-status.healthy{background:rgba(63,192,122,.12);color:var(--good);}
   .layer-status.empty{background:rgba(91,104,128,.16);color:var(--text-muted);}
   .layer-status.attention{background:rgba(234,91,87,.14);color:var(--critical);}
-  .layer-stats{display:flex;gap:18px;}
-  .layer-stats .stat b{display:block;font-family:'IBM Plex Mono';font-size:19px;font-weight:600;}
-  .layer-stats .stat span{font-size:10.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;}
-  .layer-tables{display:flex;flex-wrap:wrap;gap:5px;margin-top:2px;}
-  .tchip{font-family:'IBM Plex Mono';font-size:10px;padding:3px 7px;border-radius:6px;background:var(--bg-raised);color:var(--text-secondary);border:1px solid var(--border-soft);}
+  .layer-stats{display:flex;gap:17px;}
+  .layer-stats .stat2 b{display:block;font-family:'IBM Plex Mono';font-size:18px;font-weight:600;}
+  .layer-stats .stat2 span{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;}
+  .layer-tables{display:flex;flex-wrap:wrap;gap:5px;}
+  .tchip{font-family:'IBM Plex Mono';font-size:10px;padding:3px 7px;border-radius:6px;background:var(--bg-raised);
+         color:var(--text-secondary);border:1px solid var(--border-soft);}
   .tchip.err{color:var(--critical);border-color:rgba(234,91,87,.3);}
   .layer-sub{font-size:10.5px;color:var(--text-muted);}
-  .arrow{display:flex;align-items:center;justify-content:center;padding:0 6px;position:relative;}
-  .arrow svg{width:34px;height:18px;}
+  .arrow{display:flex;align-items:center;justify-content:center;padding:0 6px;}
+  .arrow svg{width:32px;height:18px;}
 
-  .sdlc-track{display:flex;gap:0;overflow-x:auto;padding:6px 2px 14px;scrollbar-width:thin;}
-  .stage{flex:0 0 128px;display:flex;flex-direction:column;align-items:center;text-align:center;position:relative;padding:0 4px;cursor:default;}
-  .stage-connector{position:absolute;top:38px;left:-50%;width:100%;height:2px;background:var(--border);z-index:0;}
-  .stage:first-child .stage-connector{display:none;}
-  .stage.done .stage-connector{background:var(--good);}
-  .avatar-ring{width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-               background:var(--bg-panel-2);border:2px solid var(--border);position:relative;z-index:1;margin-bottom:10px;}
-  .stage.done .avatar-ring{border-color:var(--good);opacity:.55;}
-  .stage.active .avatar-ring{border-color:var(--role-color);opacity:1;
-              box-shadow:0 0 0 5px var(--role-glow),0 0 18px var(--role-glow);animation:pulse 1.8s ease-in-out infinite;}
-  @keyframes pulse{0%,100%{box-shadow:0 0 0 4px var(--role-glow),0 0 14px var(--role-glow);}50%{box-shadow:0 0 0 8px transparent,0 0 26px var(--role-glow);}}
-  .stage-num{font-family:'IBM Plex Mono';font-size:10px;color:var(--text-muted);margin-bottom:3px;}
-  .stage-name{font-family:'Sora';font-size:12px;font-weight:600;line-height:1.25;min-height:30px;}
-  .stage-agent{font-size:10px;color:var(--text-muted);margin-top:3px;line-height:1.3;}
-  .gate-marker{flex:0 0 40px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding-top:20px;}
-  .gate-diamond{width:16px;height:16px;background:var(--bg-raised);border:2px solid var(--gold);transform:rotate(45deg);}
-  .gate-label{font-size:9px;color:var(--gold);margin-top:8px;writing-mode:vertical-rl;letter-spacing:1px;font-weight:600;}
-
-  .cols{display:grid;grid-template-columns:1.05fr .95fr;gap:22px;}
-  @media (max-width:900px){.cols{grid-template-columns:1fr;}}
-
-  .dropzone{border:1.5px dashed var(--border);border-radius:12px;padding:22px 18px;text-align:center;
-            background:var(--bg-panel-2);display:flex;flex-direction:column;align-items:center;gap:10px;cursor:pointer;transition:border-color .15s;}
+  /* ---------------- uploads ---------------- */
+  .dropzone{border:1.5px dashed var(--border);border-radius:12px;padding:20px 18px;text-align:center;
+            background:var(--bg-panel-2);display:flex;flex-direction:column;align-items:center;gap:9px;cursor:pointer;}
   .dropzone.drag{border-color:var(--accent);}
-  .dropzone svg{width:32px;height:32px;color:var(--text-muted);}
-  .dropzone .dz-title{font-size:13.5px;font-weight:600;}
-  .dropzone .dz-sub{font-size:11.5px;color:var(--text-muted);}
-  .kind-picker{display:flex;gap:8px;justify-content:center;margin-top:2px;}
-  .kind-btn{font-size:11px;padding:5px 12px;border-radius:20px;background:var(--bg-raised);border:1px solid var(--border-soft);
-            color:var(--text-secondary);cursor:pointer;}
-  .kind-btn.sel{background:var(--accent-dim);color:var(--accent);border-color:var(--accent);}
-
-  .upload-row{display:flex;align-items:flex-start;gap:12px;padding:11px 4px;border-bottom:1px solid var(--border-soft);}
+  .dropzone svg{width:30px;height:30px;color:var(--text-muted);}
+  .dropzone .dz-title{font-size:13px;font-weight:600;}
+  .dropzone .dz-sub{font-size:11.5px;color:var(--text-muted);max-width:52ch;}
+  .upload-row{display:flex;align-items:flex-start;gap:12px;padding:11px 2px;border-bottom:1px solid var(--border-soft);}
   .upload-row:last-child{border-bottom:none;}
-  .upload-icon{width:32px;height:32px;border-radius:8px;background:var(--bg-raised);display:flex;align-items:center;justify-content:center;flex:none;margin-top:1px;}
-  .upload-icon svg{width:16px;height:16px;color:var(--accent);}
   .upload-meta{flex:1;min-width:0;}
   .upload-meta .name{font-size:12.5px;font-weight:600;}
   .upload-meta .sub{font-size:11px;color:var(--text-muted);margin-top:1px;}
-  .upload-meta pre{font-size:10.5px;max-height:140px;overflow:auto;background:var(--bg-raised);border:1px solid var(--border-soft);
-                    border-radius:8px;padding:8px 10px;margin:8px 0 0;white-space:pre-wrap;color:var(--text-secondary);}
+  .upload-meta pre{font-size:10.5px;max-height:130px;overflow:auto;background:var(--bg-raised);
+                   border:1px solid var(--border-soft);border-radius:8px;padding:8px 10px;margin:8px 0 0;
+                   white-space:pre-wrap;color:var(--text-secondary);}
   .upload-actions{display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex:none;}
-  .status-chip{font-size:10px;font-weight:600;letter-spacing:.3px;padding:3px 9px;border-radius:20px;text-transform:uppercase;white-space:nowrap;}
+  .status-chip{font-size:10px;font-weight:600;padding:3px 9px;border-radius:20px;text-transform:uppercase;white-space:nowrap;}
   .status-chip.compiled{background:rgba(63,192,122,.12);color:var(--good);}
   .status-chip.review{background:rgba(227,172,62,.12);color:var(--warning);}
   .status-chip.error{background:rgba(234,91,87,.12);color:var(--critical);}
@@ -123,18 +182,26 @@
   .btn.primary{background:var(--accent);color:#04211D;}
   .btn.primary:disabled{opacity:.4;cursor:not-allowed;}
   .btn.ghost{background:transparent;color:var(--text-secondary);border:1px solid var(--border);}
+  .btn.reject{background:transparent;color:var(--critical);border:1px solid rgba(234,91,87,.4);}
+  input[type=file]{display:none;}
 
-  .pbi-tile{border-radius:12px;overflow:hidden;border:1px solid var(--border);background:var(--bg-panel-2);}
-  .pbi-preview{height:120px;background:linear-gradient(135deg,rgba(47,224,198,.10),transparent 60%),
-      repeating-linear-gradient(90deg,var(--bg-raised) 0 1px,transparent 1px 42px),
-      repeating-linear-gradient(0deg,var(--bg-raised) 0 1px,transparent 1px 26px);
-      position:relative;display:flex;align-items:flex-end;gap:6px;padding:14px;}
-  .pbi-bar{width:16px;background:linear-gradient(180deg,var(--accent),rgba(47,224,198,.25));border-radius:3px 3px 0 0;}
-  .pbi-body{padding:14px 16px 16px;display:flex;justify-content:space-between;align-items:center;gap:10px;}
-  .pbi-body .t{font-size:13px;font-weight:600;}
-  .pbi-body .s{font-size:11px;color:var(--text-muted);margin-top:2px;}
+  /* ---------------- runs ---------------- */
+  .run-card{border:1px solid var(--border-soft);border-radius:12px;padding:13px 15px;background:var(--bg-panel-2);margin-bottom:10px;}
+  .run-card:last-child{margin-bottom:0;}
+  .run-top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
+  .run-title{font-family:'Sora';font-weight:600;font-size:13px;}
+  .run-sub{font-size:10.5px;color:var(--text-muted);margin-top:2px;font-family:'IBM Plex Mono';}
+  .run-status{font-size:9.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;padding:4px 10px;border-radius:20px;flex:none;}
+  .run-status.running,.run-status.starting,.run-status.resuming{background:rgba(47,224,198,.14);color:var(--accent);}
+  .run-status.awaiting_approval{background:rgba(227,172,62,.14);color:var(--warning);animation:blink 1.8s infinite;}
+  .run-status.completed{background:rgba(63,192,122,.12);color:var(--good);}
+  .run-status.failed,.run-status.rejected{background:rgba(234,91,87,.14);color:var(--critical);}
+  .run-stages{display:flex;flex-direction:column;gap:4px;margin-top:9px;}
+  .run-stage-row{font-size:11.5px;color:var(--text-secondary);display:flex;gap:8px;}
+  .run-stage-row .sname2{font-family:'IBM Plex Mono';color:var(--text-muted);min-width:58px;}
 
-  .alert-feed{display:flex;flex-direction:column;gap:10px;margin-top:14px;}
+  /* ---------------- alerts ---------------- */
+  .alert-feed{display:flex;flex-direction:column;gap:9px;}
   .alert-item{display:flex;gap:10px;padding:11px 12px;border-radius:10px;background:var(--bg-panel-2);border:1px solid var(--border-soft);}
   .alert-dot{width:8px;height:8px;border-radius:50%;flex:none;margin-top:5px;}
   .alert-dot.ok{background:var(--good);box-shadow:0 0 6px var(--good);}
@@ -143,30 +210,11 @@
   .alert-body .s{font-size:11px;color:var(--text-muted);margin-top:2px;font-family:'IBM Plex Mono';}
   .empty-note{font-size:12px;color:var(--text-muted);padding:8px 2px;}
 
-  .footnote{font-size:11.5px;color:var(--text-muted);line-height:1.6;padding-top:4px;}
+  .srclist{display:flex;flex-wrap:wrap;gap:6px;}
+  .footnote{font-size:11.5px;color:var(--text-muted);line-height:1.6;padding-top:6px;}
   .footnote b{color:var(--text-secondary);}
 
-  .run-card{border:1px solid var(--border-soft);border-radius:12px;padding:14px 16px;background:var(--bg-panel-2);margin-bottom:10px;}
-  .run-card:last-child{margin-bottom:0;}
-  .run-top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
-  .run-title{font-family:'Sora';font-weight:600;font-size:13.5px;}
-  .run-sub{font-size:11px;color:var(--text-muted);margin-top:2px;font-family:'IBM Plex Mono';}
-  .run-status{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;padding:4px 10px;border-radius:20px;flex:none;}
-  .run-status.running,.run-status.starting,.run-status.resuming{background:rgba(47,224,198,.14);color:var(--accent);}
-  .run-status.awaiting_approval{background:rgba(227,172,62,.14);color:var(--warning);animation:pulseBadge 1.8s ease-in-out infinite;}
-  .run-status.completed{background:rgba(63,192,122,.12);color:var(--good);}
-  .run-status.failed,.run-status.rejected{background:rgba(234,91,87,.14);color:var(--critical);}
-  @keyframes pulseBadge{0%,100%{opacity:1}50%{opacity:.55}}
-  .run-stages{display:flex;flex-direction:column;gap:4px;margin-top:10px;}
-  .run-stage-row{font-size:11.5px;color:var(--text-secondary);display:flex;gap:8px;}
-  .run-stage-row .stage-name{font-family:'IBM Plex Mono';color:var(--text-muted);min-width:60px;}
-  .run-gate{margin-top:12px;padding:12px;border-radius:10px;background:rgba(227,172,62,.08);border:1px solid rgba(227,172,62,.3);}
-  .run-gate-title{font-size:12px;font-weight:700;color:var(--warning);margin-bottom:6px;}
-  .run-gate-args{font-family:'IBM Plex Mono';font-size:10.5px;color:var(--text-secondary);background:var(--bg-raised);border-radius:6px;padding:8px 10px;margin:6px 0;white-space:pre-wrap;word-break:break-all;}
-  .run-gate-actions{display:flex;gap:8px;margin-top:8px;}
-  .btn.reject{background:transparent;color:var(--critical);border:1px solid rgba(234,91,87,.4);}
-  input[type=file]{display:none;}
-
+  /* ---------------- login ---------------- */
   .login-overlay{position:fixed;inset:0;background:rgba(4,6,10,.86);backdrop-filter:blur(3px);
                  display:none;align-items:center;justify-content:center;z-index:100;padding:20px;}
   .login-overlay.show{display:flex;}
@@ -175,10 +223,19 @@
   .login-card h2{font-size:16px;margin-bottom:4px;}
   .login-card .sub{font-size:12px;color:var(--text-muted);margin-bottom:18px;}
   .login-card input{width:100%;background:var(--bg-panel-2);border:1px solid var(--border);
-                     color:var(--text-primary);font-size:13px;padding:9px 11px;border-radius:8px;
-                     font-family:inherit;margin-bottom:10px;}
+                    color:var(--text-primary);font-size:13px;padding:9px 11px;border-radius:8px;
+                    font-family:inherit;margin-bottom:10px;}
   .login-card .err{font-size:11.5px;color:var(--critical);min-height:16px;margin-bottom:6px;}
   .login-card button{width:100%;padding:9px;margin-top:2px;}
+
+  @media (max-width:860px){
+    .shell{grid-template-columns:1fr;}
+    .rail{position:static;border-right:none;border-bottom:1px solid var(--border-soft);
+          flex-direction:row;overflow-x:auto;padding:12px;gap:8px;}
+    .rail-title{display:none;}
+    .step-btn{min-width:186px;flex:none;}
+    .stage{padding:20px 16px 60px;}
+  }
 </style>
 </head>
 <body>
@@ -194,125 +251,39 @@
   </form>
 </div>
 
-<div class="wrap">
-
-  <div class="header">
-    <div class="brand">
-      <svg class="mark" viewBox="0 0 42 42" fill="none">
-        <circle cx="21" cy="21" r="20" stroke="#2FE0C6" stroke-width="1.4" opacity=".35"/>
-        <path d="M21 6 L33 13 V29 L21 36 L9 29 V13 Z" stroke="#2FE0C6" stroke-width="1.6" fill="rgba(47,224,198,.08)"/>
-        <circle cx="21" cy="21" r="5.5" fill="#2FE0C6"/>
-        <path d="M21 6V15M21 27V36M9 13L17 18M33 13L25 18M9 29L17 24M33 29L25 24" stroke="#2FE0C6" stroke-width="1.2" opacity=".55"/>
-      </svg>
-      <div class="brand-text">
-        <h1>Jarvis Control Room</h1>
-        <div class="sub">Agentic SDLC · Bronze → Silver → Gold · live status &amp; catalogue intake</div>
-      </div>
-    </div>
-    <div class="header-right">
-      <div class="live-badge"><span class="dot"></span>Live</div>
-      <select id="domain"></select>
-      <select id="target"></select>
-      <div class="conn-pills" id="connPills"></div>
+<div class="topbar">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 42 42" fill="none">
+      <circle cx="21" cy="21" r="20" stroke="#2FE0C6" stroke-width="1.4" opacity=".35"/>
+      <path d="M21 6 L33 13 V29 L21 36 L9 29 V13 Z" stroke="#2FE0C6" stroke-width="1.6" fill="rgba(47,224,198,.08)"/>
+      <circle cx="21" cy="21" r="5.5" fill="#2FE0C6"/>
+      <path d="M21 6V15M21 27V36M9 13L17 18M33 13L25 18M9 29L17 24M33 29L25 24" stroke="#2FE0C6" stroke-width="1.2" opacity=".55"/>
+    </svg>
+    <div class="brand-text">
+      <h1>Jarvis Control Room</h1>
+      <div class="sub">Contract-driven delivery · five steps · human gates that actually stop the machine</div>
     </div>
   </div>
-
-  <div class="panel">
-    <div class="panel-head">
-      <div><span class="eyebrow">Live pipeline</span><h2>Medallion data flow</h2></div>
-      <div class="note">Live table counts + <span class="mono">control.run_registry</span> · refreshes every 20s · <span id="lastFlowUpdate"></span></div>
-    </div>
-    <div class="flow" id="flow"><div class="empty-note">Loading pipeline status…</div></div>
+  <div class="header-right">
+    <div class="live-badge"><span class="dot"></span>Live</div>
+    <select id="domain"></select>
+    <select id="target"></select>
+    <div class="conn-pills" id="connPills"></div>
   </div>
-
-  <div class="panel">
-    <div class="panel-head">
-      <div><span class="eyebrow">Agentic SDLC</span><h2>Stage evidence &amp; ownership</h2></div>
-      <div class="note">10 stages · 3 human gates · glow = most recently touched evidence on disk</div>
-    </div>
-    <div class="sdlc-track" id="track"><div class="empty-note">Loading SDLC status…</div></div>
-  </div>
-
-  <div class="panel">
-    <div class="panel-head">
-      <div><span class="eyebrow">Live agent runs</span><h2>Freeze gate</h2></div>
-      <div class="note">Real Gemini-driven runs against <span class="mono">agents/jarvis_tools.py</span> · <span class="mono">write_intake_contracts</span> pauses here for you</div>
-    </div>
-    <div id="agentRuns"><div class="empty-note">Loading…</div></div>
-  </div>
-
-  <div class="cols">
-    <div class="panel">
-      <div class="panel-head"><div><span class="eyebrow">Contract intake</span><h2>Upload a catalogue</h2></div></div>
-
-      <div class="dropzone" id="dropzone">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 15V4M12 4L7 9M12 4l5 5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3" stroke-linecap="round"/></svg>
-        <div class="dz-title">Drop the Jarvis intake workbook, or click to browse</div>
-        <div class="dz-sub">One workbook — sources, silver model and gold model. Runs the real compiler in preview mode first — nothing writes until you approve.</div>
-      </div>
-      <input type="file" id="fileInput" accept=".xlsx">
-
-      <div id="uploadList" style="margin-top:6px;"></div>
-    </div>
-
-    <div style="display:flex;flex-direction:column;gap:22px;">
-      <div class="panel">
-        <div class="panel-head"><div><span class="eyebrow">Adoption</span><h2>Power BI</h2></div></div>
-        <div class="pbi-tile">
-          <div class="pbi-preview">
-            <div class="pbi-bar" style="height:38%"></div><div class="pbi-bar" style="height:64%"></div>
-            <div class="pbi-bar" style="height:48%"></div><div class="pbi-bar" style="height:80%"></div>
-            <div class="pbi-bar" style="height:56%"></div><div class="pbi-bar" style="height:70%"></div>
-          </div>
-          <div class="pbi-body">
-            <div><div class="t">Book of Business — Insights</div><div class="s">Connected via Databricks SQL warehouse (jarvis catalog)</div></div>
-            <a class="btn primary" href="https://app.powerbi.com" target="_blank" rel="noopener">Open</a>
-          </div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-head">
-          <div><span class="eyebrow">Ops</span><h2>Alert feed</h2></div>
-          <a class="btn ghost" href="https://jarvis-ops-testing.slack.com/archives/C0C21CXLECC" target="_blank" rel="noopener">#all-jarvis-ops-testing ↗</a>
-        </div>
-        <div class="note" style="margin:-10px 0 4px;">Mirrored from <span class="mono">control.run_registry</span> — quarantine/failure events here are also posted live to that Slack channel by <span class="mono">harness/run_bronze.py</span></div>
-        <div class="alert-feed" id="alertFeed"><div class="empty-note">Loading…</div></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="footnote">
-    <b>This is the real thing.</b> Pipeline and SDLC panels read live from <span class="mono">control.run_registry</span> and the actual evidence files on disk. Uploads run the actual compiler (<span class="mono">emitters/intake_compiler.py</span>) in preview mode; nothing is written to <span class="mono">contracts/</span> until you click Approve.
-  </div>
-
 </div>
 
+<div class="shell">
+  <nav class="rail" id="rail"><div class="rail-title">The journey</div></nav>
+  <main class="stage">
+    <div id="attention"></div>
+    <div id="screen"><div class="empty-note">Loading…</div></div>
+  </main>
+</div>
+
+<input type="file" id="fileInput" accept=".xlsx">
+
 <script>
-const AGENT_COLORS = {
-  "program-manager": "#2FE0C6", "business-analyst": "#4C8DFF",
-  "solution-architect": "#9B7FE8", "data-architect": "#E85FA0",
-  "de-bronze": "#CF8A4E", "de-silver": "#A8B7CC", "de-gold": "#F0C15A",
-  "test-manager": "#3FC07A", "reviewer": "#E2793D", "evidence-agent": "#5CC8E8",
-};
-function ownerColor(owner){
-  // "de-bronze / de-silver / de-gold" or "solution-architect + data-architect" -> first match
-  for (const key of Object.keys(AGENT_COLORS)) if (owner.includes(key)) return AGENT_COLORS[key];
-  return "#2FE0C6";
-}
-function hexToRgb(hex){ const v=hex.replace('#',''); return [parseInt(v.slice(0,2),16),parseInt(v.slice(2,4),16),parseInt(v.slice(4,6),16)]; }
-function botFace(color){
-  const [r,g,b]=hexToRgb(color);
-  return `<svg viewBox="0 0 64 64" width="40" height="40">
-    <rect x="15" y="20" width="34" height="28" rx="9" fill="none" stroke="${color}" stroke-width="2.2"/>
-    <line x1="32" y1="20" x2="32" y2="11" stroke="${color}" stroke-width="2"/>
-    <circle cx="32" cy="8" r="3.2" fill="${color}"/>
-    <circle cx="24.5" cy="34" r="3.6" fill="${color}"/><circle cx="39.5" cy="34" r="3.6" fill="${color}"/>
-    <path d="M24 43 Q32 48 40 43" stroke="${color}" stroke-width="2" fill="none" stroke-linecap="round"/>
-    <line x1="9" y1="30" x2="15" y2="30" stroke="${color}" stroke-width="2"/>
-    <line x1="49" y1="30" x2="55" y2="30" stroke="${color}" stroke-width="2"/>
-  </svg>`;
-}
+/* ============================== helpers ============================== */
 function esc(s){ return (s??"").toString().replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function fmtNum(n){ return (n||0).toLocaleString(); }
 function timeAgo(iso){
@@ -326,15 +297,14 @@ function timeAgo(iso){
 
 let currentTarget = "duckdb";
 let currentDomain = "insurance";
+let currentStep   = 3;          // land on Data engineering: the step with real data behind it
+let journeyData   = null;
+let pendingRuns   = [];
 
-// ---------------- API base + auth ----------------
+/* ============================== API base + auth ============================== */
 // Same file serves two ways: the FastAPI backend hands it out directly at "/" (same-origin --
-// keep API_BASE "" so every call below is a same-origin relative fetch), or it's deployed
-// standalone to Vercel, where there's no same-origin backend to call and every request must
-// go to the Railway origin instead. Detected by host rather than hardcoded so this one file
-// keeps working unmodified from either place -- localhost/127.0.0.1 (local dev) and the
-// backend's own Railway domain (visiting the backend directly) both mean "same origin";
-// anything else (the Vercel domain) means "cross-origin, go to Railway".
+// API_BASE stays "" and every call is relative), or it's deployed standalone to Vercel, where
+// every request must go cross-origin to Railway. Detected by host so one file works from both.
 const RAILWAY_BACKEND = "https://jarvis-backend-production-dfb3.up.railway.app";
 const API_BASE = (["localhost", "127.0.0.1"].includes(location.hostname) || location.hostname.endsWith(".up.railway.app"))
   ? "" : RAILWAY_BACKEND;
@@ -348,11 +318,7 @@ async function api(path, opts={}){
   const cred = getCred();
   if (cred) headers['Authorization'] = 'Basic ' + cred;
   const res = await fetch(API_BASE + path, Object.assign({}, opts, {headers}));
-  if (res.status === 401) {
-    clearCred();
-    await showLogin();
-    return api(path, opts);  // retry once, now with fresh credentials
-  }
+  if (res.status === 401) { clearCred(); await showLogin(); return api(path, opts); }
   return res;
 }
 
@@ -370,27 +336,21 @@ function showLogin(){
       const cred = btoa(`${u}:${p}`);
       try {
         const r = await fetch(API_BASE + '/api/targets', {headers: {Authorization: 'Basic ' + cred}});
-        if (r.ok) {
-          setCred(cred);
-          overlay.classList.remove('show');
-          resolve();
-        } else {
-          errEl.textContent = 'Invalid username or password.';
-        }
-      } catch {
-        errEl.textContent = 'Could not reach the backend.';
-      }
+        if (r.ok) { setCred(cred); overlay.classList.remove('show'); resolve(); }
+        else errEl.textContent = 'Invalid username or password.';
+      } catch { errEl.textContent = 'Could not reach the backend.'; }
     };
   });
 }
 
+/* ============================== selectors ============================== */
 async function loadTargets(){
   const r = await api('/api/targets'); const j = await r.json();
   const sel = document.getElementById('target');
-  sel.innerHTML = j.targets.map(t => `<option value="${t}">${t}</option>`).join('');
+  sel.innerHTML = j.targets.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
   if (j.targets.includes('duckdb')) sel.value = 'duckdb';
   currentTarget = sel.value;
-  sel.addEventListener('change', () => { currentTarget = sel.value; refreshFlow(); refreshAlerts(); });
+  sel.addEventListener('change', () => { currentTarget = sel.value; reloadJourney(); });
 }
 
 async function loadDomains(){
@@ -399,38 +359,258 @@ async function loadDomains(){
   sel.innerHTML = j.domains.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
   if (j.domains.includes('insurance')) sel.value = 'insurance';
   currentDomain = sel.value;
-  sel.addEventListener('change', () => { currentDomain = sel.value; refreshFlow(); refreshAlerts(); });
+  sel.addEventListener('change', () => { currentDomain = sel.value; reloadJourney(); });
 }
 
-const LAYER_META = {
-  bronze: {label:"Bronze", color:"var(--bronze)"},
-  silver: {label:"Silver", color:"var(--silver)"},
-  gold:   {label:"Gold",   color:"var(--gold)"},
-};
+/* ============================== journey + rail ============================== */
+async function reloadJourney(){
+  const pills = document.getElementById('connPills');
+  try {
+    const r = await api(`/api/journey?domain=${encodeURIComponent(currentDomain)}&target=${encodeURIComponent(currentTarget)}`);
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    journeyData = await r.json();
+    pills.innerHTML = `<div class="pill"><span class="dot"></span>${esc(currentTarget)}</div>`;
+  } catch (e) {
+    pills.innerHTML = `<div class="pill err"><span class="dot"></span>${esc(currentTarget)} unreachable</div>`;
+    document.getElementById('screen').innerHTML = `<div class="empty-note">Could not load the journey: ${esc(e.message)}</div>`;
+    return;
+  }
+  renderRail();
+  renderScreen();
+}
+
+function gateStateFor(gate){
+  if (pendingRuns.some(r => r.pending_action && r.pending_action.gate && r.pending_action.gate.id === gate.id)) return 'pending';
+  if (gate.capability === 'planned') return 'planned';
+  if (gate.passed) return 'passed';
+  return 'waiting';
+}
+
+function renderRail(){
+  const rail = document.getElementById('rail');
+  let html = `<div class="rail-title">The journey</div>`;
+  journeyData.steps.forEach(s => {
+    const gates = (s.gates || []).map(g => {
+      const st = gateStateFor(g);
+      return `<span class="gbadge ${st === 'pending' ? 'pending' : (st === 'passed' ? 'passed' : '')}">${esc(g.id)}</span>`;
+    }).join('');
+    html += `<button class="step-btn ${s.step === currentStep ? 'sel' : ''}" onclick="selectStep(${s.step})">
+      <span class="sn">${String(s.step).padStart(2,'0')}</span>
+      <span>
+        <span class="sname">${esc(s.name)}</span>
+        <span class="smeta"><span class="cap ${esc(s.capability)}">${esc(s.capability)}</span>${gates}</span>
+      </span>
+    </button>`;
+  });
+  rail.innerHTML = html;
+}
+
+function selectStep(n){ currentStep = n; renderRail(); renderScreen(); }
+window.selectStep = selectStep;
+
+/* ============================== attention bar ============================== */
+function renderAttention(){
+  const el = document.getElementById('attention');
+  const awaiting = pendingRuns.filter(r => r.status === 'awaiting_approval');
+  if (!awaiting.length) { el.innerHTML = ''; return; }
+  el.innerHTML = awaiting.map(run => {
+    const g = run.pending_action && run.pending_action.gate;
+    const label = g ? `${g.id} · ${g.name}` : 'Approval needed';
+    const what = g ? g.approves : 'The agent is paused waiting for a decision.';
+    const step = g ? g.step : null;
+    return `<div class="attn">
+      <span class="lbl">⏸ Paused · ${esc(label)}</span>
+      <span class="tx"><b>${esc(run.domain)}</b> — ${esc(what)}</span>
+      ${step !== null ? `<button class="btn ghost" onclick="selectStep(${step})">Open step ${String(step).padStart(2,'0')}</button>` : ''}
+      <button class="btn primary" onclick="approveRun('${esc(run.run_id)}')">Approve</button>
+      <button class="btn reject" onclick="rejectRun('${esc(run.run_id)}')">Reject</button>
+    </div>`;
+  }).join('');
+}
+
+/* ============================== gate cards ============================== */
+function gateCard(gate){
+  const state = gateStateFor(gate);
+  const run = pendingRuns.find(r => r.pending_action && r.pending_action.gate && r.pending_action.gate.id === gate.id);
+  const stateLabel = {pending:'Awaiting you', passed:'Passed', waiting:'Not reached', planned:'Not built yet'}[state];
+  let args = '';
+  if (run) {
+    const reqs = (run.pending_action.action_requests || []);
+    args = reqs.map(r => `<div class="gargs">${esc(r.name)}(${esc(JSON.stringify(r.args, null, 1))})</div>`).join('');
+  }
+  const recs = (gate.records || []).map(r =>
+    `<div class="grec">✓ signed ${esc((r.date||'').slice(0,19))} · ${esc(r.file)}</div>`).join('');
+  return `<div class="gate ${state}">
+    <div class="gate-top">
+      <span class="gid">${esc(gate.id)}</span>
+      <span class="gname">${esc(gate.name)}</span>
+      <span class="gstate ${state}">${esc(stateLabel)}</span>
+    </div>
+    <div class="gapproves">${esc(gate.approves)}</div>
+    ${gate.rule ? `<div class="grule">${esc(gate.rule)}</div>` : ''}
+    ${gate.blocked_by ? `<div class="grule">Blocked by: ${esc(gate.blocked_by)}</div>` : ''}
+    ${gate.tool ? `<div class="grule mono">interrupts on: ${esc(gate.tool)}${gate.prep ? ` · evidence from: ${esc(gate.prep)}` : ''}</div>` : ''}
+    ${recs}${args}
+    ${run ? `<div class="gate-actions">
+        <button class="btn primary" onclick="approveRun('${esc(run.run_id)}')">Approve</button>
+        <button class="btn reject" onclick="rejectRun('${esc(run.run_id)}')">Reject</button>
+      </div>` : ''}
+  </div>`;
+}
+
+/* ============================== screens ============================== */
+function screenHead(s){
+  const who = (s.agent_detail || []).map(a =>
+    `<span class="who" style="--c:${esc(a.colour)}"><i></i><b>Agent ${a.num}</b> · ${esc(a.role)}</span>`).join('');
+  return `<div class="screen-head">
+    <div class="eyebrow">Step ${String(s.step).padStart(2,'0')} · ${esc(s.capability)}</div>
+    <h2>${esc(s.name)}</h2>
+    <div class="tagline">${esc(s.tagline)}</div>
+    ${who ? `<div class="who-row">${who}</div>` : ''}
+  </div>`;
+}
+function gapNote(s){
+  if (!s.gap) return '';
+  return `<div class="gap"><span class="ic">○</span><span class="tx"><b>Not built yet:</b> ${esc(s.gap)}</span></div>`;
+}
+function gatesBlock(s){
+  if (!s.gates || !s.gates.length) return '';
+  return `<div class="panel">
+    <div class="panel-head"><h3>Human gate${s.gates.length>1?'s':''}</h3>
+      <span class="note">A real pause in the agent graph — the run stops here and only a person resumes it</span></div>
+    <div id="gateHost">${s.gates.map(gateCard).join('')}</div></div>`;
+}
+
+function refreshGatesInPlace(){
+  // Only the gate cards change when a run pauses or resumes -- re-rendering the whole screen
+  // would also wipe the upload list mid-interaction, and (since the build screen's renderer
+  // calls loadAgentRuns itself) would recurse the moment a step had both gates and runs.
+  const host = document.getElementById('gateHost');
+  if (!host || !journeyData) return;
+  const s = journeyData.steps.find(x => x.step === currentStep);
+  if (s && s.gates && s.gates.length) host.innerHTML = s.gates.map(gateCard).join('');
+}
+
+function renderScreen(){
+  const s = journeyData.steps.find(x => x.step === currentStep);
+  const el = document.getElementById('screen');
+  const o = s.observed || {};
+  let body = '';
+
+  if (s.id === 'onboard') {
+    body = `<div class="panel">
+      <div class="panel-head"><h3>Workspace</h3><span class="note">Domains with compiled contracts on this platform</span></div>
+      <div class="stats">
+        <div class="stat"><b>${fmtNum((o.domains||[]).length)}</b><span>domains</span></div>
+        <div class="stat"><b style="font-size:14px;line-height:1.9">${esc(o.current||'—')}</b><span>current</span></div>
+      </div>
+      <div class="srclist" style="margin-top:14px;">${(o.domains||[]).map(d=>`<span class="tchip">${esc(d)}</span>`).join('')}</div>
+    </div>`;
+  }
+
+  else if (s.id === 'sources') {
+    const src = o.contracted_sources || [];
+    body = `<div class="panel">
+      <div class="panel-head"><h3>Sources under contract</h3>
+        <span class="note">Read from contracts/sources/${esc(currentDomain)}/ — real, but authored by a human, not discovered</span></div>
+      <div class="stats">
+        <div class="stat"><b>${fmtNum(src.length)}</b><span>under contract</span></div>
+        <div class="stat muted"><b>—</b><span>discovered</span></div>
+        <div class="stat muted"><b>—</b><span>profiled</span></div>
+      </div>
+      <div class="srclist" style="margin-top:14px;">${src.map(x=>`<span class="tchip">${esc(x)}</span>`).join('') || '<span class="empty-note">No source contracts for this domain.</span>'}</div>
+    </div>`;
+  }
+
+  else if (s.id === 'catalogue') {
+    body = `<div class="panel">
+      <div class="panel-head"><h3>Catalogue state</h3><span class="note">Compiled contracts on disk for ${esc(currentDomain)}</span></div>
+      <div class="stats">
+        <div class="stat"><b>${fmtNum(o.source_contracts)}</b><span>source contracts</span></div>
+        <div class="stat"><b>${o.model_contract ? '✓' : '—'}</b><span>silver model</span></div>
+        <div class="stat"><b>${o.gold_contract ? '✓' : '—'}</b><span>gold model</span></div>
+        <div class="stat muted"><b>—</b><span>intent captured</span></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Contract intake</h3>
+        <span class="note">Runs the real compiler in preview — nothing writes until a gate is approved</span></div>
+      <div class="dropzone" id="dropzone">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 15V4M12 4L7 9M12 4l5 5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3" stroke-linecap="round"/></svg>
+        <div class="dz-title">Drop the Jarvis intake workbook, or click to browse</div>
+        <div class="dz-sub">One workbook — sources, silver model and gold model.</div>
+      </div>
+      <div id="uploadList" style="margin-top:8px;"></div>
+    </div>`;
+  }
+
+  else if (s.id === 'build') {
+    body = `<div class="panel">
+      <div class="panel-head"><h3>Medallion data flow</h3><span class="note">Live table counts · <span class="mono">control.run_registry</span></span></div>
+      <div class="flow" id="flow"><div class="empty-note">Loading…</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Agent runs</h3>
+        <span class="note">Real Gemini-driven runs against <span class="mono">agents/jarvis_tools.py</span></span></div>
+      <div id="agentRuns"><div class="empty-note">Loading…</div></div>
+    </div>`;
+  }
+
+  else if (s.id === 'validate') {
+    body = `<div class="panel">
+      <div class="panel-head"><h3>Quality evidence</h3><span class="note">From <span class="mono">control.dq_results</span> for ${esc(currentDomain)}</span></div>
+      <div class="stats">
+        <div class="stat"><b>${fmtNum(o.dq_checked)}</b><span>DQ checks run</span></div>
+        <div class="stat"><b style="color:${(o.dq_failing||0) ? 'var(--critical)' : 'var(--good)'}">${fmtNum(o.dq_failing)}</b><span>failing</span></div>
+        <div class="stat muted"><b>—</b><span>generated tests</span></div>
+        <div class="stat muted"><b>—</b><span>dashboards</span></div>
+      </div>
+    </div>`;
+  }
+
+  else if (s.id === 'operate') {
+    body = `<div class="panel">
+      <div class="panel-head"><h3>Operations</h3><span class="note">Mirrored from <span class="mono">control.run_registry</span> and posted to Slack</span></div>
+      <div class="stats">
+        <div class="stat"><b style="color:${(o.failures||0) ? 'var(--critical)' : 'var(--good)'}">${fmtNum(o.failures)}</b><span>open failures</span></div>
+        <div class="stat"><b style="font-size:13px;line-height:2">${esc(o.latest_digest_date||'—')}</b><span>last digest</span></div>
+        <div class="stat muted"><b>—</b><span>open tickets</span></div>
+      </div>
+      <div class="alert-feed" id="alertFeed" style="margin-top:15px;"><div class="empty-note">Loading…</div></div>
+    </div>`;
+  }
+
+  el.innerHTML = screenHead(s) + gapNote(s) + gatesBlock(s) + body +
+    `<div class="footnote"><b>Every number on this screen is observed, not asserted</b> — counted from the live
+     tables, the control plane, or the contracts on disk. A dash means the capability that would produce
+     that number does not exist yet.</div>`;
+
+  if (s.id === 'catalogue') { wireDropzone(); loadUploads(); }
+  if (s.id === 'build') { refreshFlow(); loadAgentRuns(); }
+  if (s.id === 'operate') { refreshAlerts(); }
+}
+
+/* ============================== flow ============================== */
+const LAYER_META = {bronze:{label:"Bronze",color:"var(--bronze)"},silver:{label:"Silver",color:"var(--silver)"},gold:{label:"Gold",color:"var(--gold)"}};
 const STATUS_LABEL = {failed:["attention","Attention"], active:["healthy","Healthy"], pending:["empty","No runs yet"]};
-
-function arrowSvg(){
-  return `<svg viewBox="0 0 34 18"><line x1="0" y1="9" x2="26" y2="9" stroke="var(--border)" stroke-width="2"/><path d="M22 4 L30 9 L22 14" stroke="var(--border)" stroke-width="2" fill="none"/></svg>`;
-}
+function arrowSvg(){ return `<svg viewBox="0 0 34 18"><line x1="0" y1="9" x2="26" y2="9" stroke="var(--border)" stroke-width="2"/><path d="M22 4 L30 9 L22 14" stroke="var(--border)" stroke-width="2" fill="none"/></svg>`; }
 
 async function refreshFlow(){
-  const pillsEl = document.getElementById('connPills');
+  const host = document.getElementById('flow'); if (!host) return;
   try {
-    const r = await api(`/api/pipeline/flow?target=${currentTarget}&domain=${encodeURIComponent(currentDomain)}`);
+    const r = await api(`/api/pipeline/flow?target=${encodeURIComponent(currentTarget)}&domain=${encodeURIComponent(currentDomain)}`);
     if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
     const j = await r.json();
-    pillsEl.innerHTML = `<div class="pill"><span class="dot"></span>${esc(currentTarget)}</div>`;
-    const order = ["bronze","silver","gold"];
     let html = "";
-    order.forEach((phase, i) => {
+    ["bronze","silver","gold"].forEach((phase, i) => {
       const L = j.layers[phase], meta = LAYER_META[phase];
       const [cls,label] = STATUS_LABEL[L.status] || ["empty","Unknown"];
       html += `<div class="layer-card" style="--layer-color:${meta.color}">
         <div class="layer-top"><span class="layer-name">${meta.label}</span><span class="layer-status ${cls}">${label}</span></div>
         <div class="layer-stats">
-          <div class="stat"><b>${fmtNum(L.table_count)}</b><span>tables</span></div>
-          <div class="stat"><b>${fmtNum(L.columns)}</b><span>columns</span></div>
-          <div class="stat"><b>${fmtNum(L.rows)}</b><span>rows</span></div>
+          <div class="stat2"><b>${fmtNum(L.table_count)}</b><span>tables</span></div>
+          <div class="stat2"><b>${fmtNum(L.columns)}</b><span>columns</span></div>
+          <div class="stat2"><b>${fmtNum(L.rows)}</b><span>rows</span></div>
         </div>
         <div class="layer-tables">${
           (L.tables.slice(0,4).map(t=>`<span class="tchip">${esc(t)}</span>`).join('')) +
@@ -439,22 +619,20 @@ async function refreshFlow(){
         }</div>
         <div class="layer-sub">last run: ${timeAgo(L.last_run_at)}</div>
       </div>`;
-      if (i < order.length-1) html += `<div class="arrow">${arrowSvg()}</div>`;
+      if (i < 2) html += `<div class="arrow">${arrowSvg()}</div>`;
     });
-    document.getElementById('flow').innerHTML = html;
-    document.getElementById('lastFlowUpdate').textContent = "updated " + new Date().toLocaleTimeString();
+    host.innerHTML = html;
   } catch (e) {
-    pillsEl.innerHTML = `<div class="pill err"><span class="dot"></span>${esc(currentTarget)} unreachable</div>`;
-    document.getElementById('flow').innerHTML = `<div class="empty-note">Could not load pipeline status for "${esc(currentTarget)}": ${esc(e.message)}</div>`;
+    host.innerHTML = `<div class="empty-note">Could not load pipeline status: ${esc(e.message)}</div>`;
   }
 }
 
 async function refreshAlerts(){
+  const feed = document.getElementById('alertFeed'); if (!feed) return;
   try {
-    const r = await api(`/api/alerts?target=${currentTarget}&domain=${encodeURIComponent(currentDomain)}`);
+    const r = await api(`/api/alerts?target=${encodeURIComponent(currentTarget)}&domain=${encodeURIComponent(currentDomain)}`);
     if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
     const j = await r.json();
-    const feed = document.getElementById('alertFeed');
     const digest = j.latest_digest;
     let html = "";
     if (digest && digest.date) {
@@ -462,9 +640,7 @@ async function refreshAlerts(){
       html += `<div class="alert-item"><div class="alert-dot ok"></div><div class="alert-body">
         <div class="t">Daily digest — ${esc(parts)}</div><div class="s">${esc(digest.date)} · ${esc(digest.target)}</div></div></div>`;
     }
-    if (j.failures.length === 0 && !(digest && digest.date)) {
-      html = `<div class="empty-note">No failures or quarantines on record for ${esc(currentTarget)}.</div>`;
-    }
+    if (!j.failures.length && !(digest && digest.date)) html = `<div class="empty-note">Nothing on record yet for ${esc(currentDomain)}.</div>`;
     j.failures.forEach(f => {
       html += `<div class="alert-item"><div class="alert-dot fail"></div><div class="alert-body">
         <div class="t">${esc(f.phase)}.${esc(f.source_id)} — ${f.status==='failed' ? esc(f.error||'failed') : f.files_quarantined+' batch(es) quarantined'}</div>
@@ -472,75 +648,50 @@ async function refreshAlerts(){
     });
     feed.innerHTML = html;
   } catch (e) {
-    document.getElementById('alertFeed').innerHTML = `<div class="empty-note">Could not load alerts: ${esc(e.message)}</div>`;
+    feed.innerHTML = `<div class="empty-note">Could not load alerts: ${esc(e.message)}</div>`;
   }
 }
 
-async function loadSdlc(){
-  const r = await api('/api/sdlc'); const j = await r.json();
-  const track = document.getElementById('track');
-  let html = "";
-  j.stages.forEach((s, i) => {
-    const color = ownerColor(s.owner);
-    const [rr,gg,bb] = hexToRgb(color);
-    const glow = `rgba(${rr},${gg},${bb},.22)`;
-    const stateClass = s.n === j.active_stage ? "active" : (s.done ? "done" : "");
-    html += `<div class="stage ${stateClass}" style="--role-color:${color};--role-glow:${glow}" title="${esc(s.evidence.join('\n') || 'no evidence yet')}">
-      <div class="stage-connector"></div>
-      <div class="avatar-ring">${botFace(color)}</div>
-      <div class="stage-num">STAGE ${String(s.n).padStart(2,'0')}</div>
-      <div class="stage-name">${esc(s.name)}</div>
-      <div class="stage-agent">${esc(s.owner)}</div>
-    </div>`;
-    if (s.gate) html += `<div class="gate-marker"><div class="gate-diamond"></div><div class="gate-label">${esc(s.gate)}</div></div>`;
-  });
-  track.innerHTML = html;
+/* ============================== uploads ============================== */
+function wireDropzone(){
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('fileInput');
+  if (!dropzone) return;
+  dropzone.addEventListener('click', () => fileInput.click());
+  fileInput.onchange = () => { if (fileInput.files[0]) uploadFile(fileInput.files[0]); };
+  ['dragenter','dragover'].forEach(e => dropzone.addEventListener(e, ev => { ev.preventDefault(); dropzone.classList.add('drag'); }));
+  ['dragleave','drop'].forEach(e => dropzone.addEventListener(e, ev => { ev.preventDefault(); dropzone.classList.remove('drag'); }));
+  dropzone.addEventListener('drop', ev => { const f = ev.dataTransfer.files[0]; if (f) uploadFile(f); });
 }
-
-// ---------------- uploads ----------------
-const selectedKind = "intake";  // one unified workbook -> one compiler, no picker needed
-
-const dropzone = document.getElementById('dropzone');
-const fileInput = document.getElementById('fileInput');
-dropzone.addEventListener('click', () => fileInput.click());
-fileInput.addEventListener('change', () => { if (fileInput.files[0]) uploadFile(fileInput.files[0]); });
-['dragenter','dragover'].forEach(evt => dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.add('drag'); }));
-['dragleave','drop'].forEach(evt => dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.remove('drag'); }));
-dropzone.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) uploadFile(f); });
 
 async function uploadFile(file){
   const fd = new FormData();
-  fd.append('kind', selectedKind);
+  fd.append('kind', 'intake');
   fd.append('file', file);
   const r = await api('/api/uploads', {method:'POST', body:fd});
   if (!r.ok) { alert('Upload failed: ' + (await r.json()).detail); return; }
   await loadUploads();
 }
 
-function uploadIconSvg(){
-  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 12l2 2 4-4M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`;
-}
-
 async function loadUploads(){
+  const el = document.getElementById('uploadList'); if (!el) return;
   const r = await api('/api/uploads'); const j = await r.json();
-  const el = document.getElementById('uploadList');
-  if (j.uploads.length === 0) { el.innerHTML = `<div class="empty-note">No catalogues uploaded yet.</div>`; return; }
+  if (!j.uploads.length) { el.innerHTML = `<div class="empty-note">No catalogues uploaded yet.</div>`; return; }
   el.innerHTML = j.uploads.map(u => {
     const previewOk = u.preview && u.preview.ok;
     const chip = u.compiled ? `<div class="status-chip compiled">Compiled</div>`
                : previewOk ? `<div class="status-chip review">Preview ready</div>`
                : `<div class="status-chip error">Compile error</div>`;
     const btn = u.compiled ? "" : (previewOk
-      ? `<button class="btn primary" onclick="approveUpload('${u.id}')">Approve &amp; write</button>
-         <button class="btn ghost" onclick="startAgentRun('${u.id}')" style="margin-top:6px;">Run via Agent</button>`
+      ? `<button class="btn primary" onclick="startAgentRun('${esc(u.id)}')">Run via Agent</button>
+         <button class="btn ghost" onclick="approveUpload('${esc(u.id)}')">Compile directly</button>`
       : `<button class="btn ghost" disabled>Fix &amp; re-upload</button>`);
     const out = u.compiled ? (u.compile_result.stdout || u.compile_result.stderr) : (u.preview.stdout || u.preview.stderr);
     return `<div class="upload-row">
-      <div class="upload-icon">${uploadIconSvg()}</div>
       <div class="upload-meta">
         <div class="name">${esc(u.filename)}</div>
         <div class="sub">intake workbook · ${new Date(u.uploaded_at*1000).toLocaleString()}</div>
-        <pre>${esc((out||'').slice(-1500))}</pre>
+        <pre>${esc((out||'').slice(-1200))}</pre>
       </div>
       <div class="upload-actions">${chip}${btn}</div>
     </div>`;
@@ -550,16 +701,15 @@ async function loadUploads(){
 async function approveUpload(id){
   const r = await api(`/api/uploads/${id}/approve`, {method:'POST'});
   if (!r.ok) { alert('Compile failed: ' + (await r.json()).detail); }
-  await loadUploads();
-  await loadSdlc();
+  await loadUploads(); await reloadJourney();
 }
 window.approveUpload = approveUpload;
 
-// ---------------- agent runs ----------------
+/* ============================== agent runs ============================== */
 async function startAgentRun(uploadId){
   const fd = new FormData();
   fd.append('upload_id', uploadId);
-  fd.append('domain_hint', 'unknown');
+  fd.append('domain_hint', currentDomain);
   const r = await api('/api/agent-runs', {method:'POST', body:fd});
   if (!r.ok) { alert('Could not start agent run: ' + (await r.json()).detail); return; }
   await loadAgentRuns();
@@ -581,56 +731,43 @@ async function rejectRun(runId){
 window.rejectRun = rejectRun;
 
 function renderRunCard(run){
-  const started = new Date(run.started_at.replace(' ', 'T') + 'Z');
+  const started = new Date((run.started_at||'').replace(' ', 'T') + 'Z');
   const stagesHtml = (run.stages || []).map(s =>
-    `<div class="run-stage-row"><span class="stage-name">${esc(s.stage)}</span><span>${esc(s.agent)} — ${esc(s.detail || s.status)}</span></div>`
+    `<div class="run-stage-row"><span class="sname2">${esc(s.stage)}</span><span>${esc(s.agent)} — ${esc(s.detail || s.status)}</span></div>`
   ).join('') || `<div class="run-stage-row"><span>no stages logged yet</span></div>`;
-
-  let gateHtml = '';
-  if (run.status === 'awaiting_approval' && run.pending_action) {
-    const reqs = run.pending_action.action_requests || [];
-    gateHtml = reqs.map(req => `
-      <div class="run-gate">
-        <div class="run-gate-title">⏸ Paused at the Freeze gate — approval needed</div>
-        <div>Tool: <span class="mono">${esc(req.name)}</span></div>
-        <div class="run-gate-args">${esc(JSON.stringify(req.args, null, 2))}</div>
-        <div class="run-gate-actions">
-          <button class="btn primary" onclick="approveRun('${run.run_id}')">Approve — write contracts</button>
-          <button class="btn reject" onclick="rejectRun('${run.run_id}')">Reject</button>
-        </div>
-      </div>`).join('');
-  }
-
+  const g = run.pending_action && run.pending_action.gate;
   return `<div class="run-card">
     <div class="run-top">
       <div>
         <div class="run-title">${esc(run.domain)} <span style="color:var(--text-muted);font-weight:400;">/ ${esc(run.client)}</span></div>
-        <div class="run-sub">${esc(run.run_id.slice(0,8))} · started ${started.toLocaleTimeString()} · ${esc(run.started_by)}</div>
+        <div class="run-sub">${esc((run.run_id||'').slice(0,8))} · ${isNaN(started) ? '' : started.toLocaleTimeString()} · ${esc(run.started_by)}</div>
       </div>
-      <div class="run-status ${esc(run.status)}">${esc(run.status.replace('_',' '))}</div>
+      <div class="run-status ${esc(run.status)}">${esc((run.status||'').replace('_',' '))}${g ? ' · '+esc(g.id) : ''}</div>
     </div>
     <div class="run-stages">${stagesHtml}</div>
-    ${gateHtml}
   </div>`;
 }
 
 async function loadAgentRuns(){
-  const el = document.getElementById('agentRuns');
   try {
     const r = await api('/api/agent-runs');
     const j = await r.json();
-    if (!j.runs.length) { el.innerHTML = `<div class="empty-note">No agent runs yet — upload a workbook and click "Run via Agent".</div>`; return; }
-    const details = await Promise.all(j.runs.map(run => api(`/api/agent-runs/${run.run_id}`).then(r => r.ok ? r.json() : run)));
-    el.innerHTML = details.map(renderRunCard).join('');
+    const details = await Promise.all(j.runs.map(run => api(`/api/agent-runs/${run.run_id}`).then(x => x.ok ? x.json() : run)));
+    pendingRuns = details;
+    renderAttention();
+    renderRail();
+    const el = document.getElementById('agentRuns');
+    if (el) el.innerHTML = details.length ? details.map(renderRunCard).join('')
+      : `<div class="empty-note">No agent runs yet — upload a workbook on step 02 and click "Run via Agent".</div>`;
+    refreshGatesInPlace();
   } catch (e) {
-    el.innerHTML = `<div class="empty-note">Could not load agent runs: ${esc(e.message)}</div>`;
+    const el = document.getElementById('agentRuns');
+    if (el) el.innerHTML = `<div class="empty-note">Could not load agent runs: ${esc(e.message)}</div>`;
   }
 }
 
-// ---------------- boot ----------------
+/* ============================== boot ============================== */
 async function ensureAuthed(){
-  // One check up front, not per-panel -- letting every panel's first fetch hit its own 401
-  // independently would pop the login overlay multiple times in the same instant.
   const cred = getCred();
   const r = await fetch(API_BASE + '/api/targets', {headers: cred ? {Authorization: 'Basic ' + cred} : {}});
   if (r.status === 401) { clearCred(); await showLogin(); }
@@ -639,11 +776,11 @@ async function ensureAuthed(){
 (async function(){
   await ensureAuthed();
   await Promise.all([loadTargets(), loadDomains()]);
-  await Promise.all([refreshFlow(), refreshAlerts(), loadSdlc(), loadUploads(), loadAgentRuns()]);
-  setInterval(refreshFlow, 20000);
-  setInterval(refreshAlerts, 8000);
-  setInterval(loadSdlc, 30000);
+  await reloadJourney();
+  await loadAgentRuns();
   setInterval(loadAgentRuns, 15000);
+  setInterval(() => { if (currentStep === 3) refreshFlow(); }, 20000);
+  setInterval(() => { if (currentStep === 5) refreshAlerts(); }, 15000);
 })();
 </script>
 </body>
