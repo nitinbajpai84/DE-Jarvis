@@ -8,11 +8,14 @@ Run:  python -m uvicorn webapp.backend.main:app --reload --port 8010   (from the
 """
 from __future__ import annotations
 
+import base64
 import pathlib
+import secrets
 import sys
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
@@ -36,6 +39,59 @@ from webapp.backend import agent_runs, pipeline, sdlc, uploads  # noqa: E402
 app = FastAPI(title="Jarvis Control Room")
 
 FRONTEND_DIR = REPO_ROOT / "webapp" / "frontend"
+
+# -- access control -----------------------------------------------------------------
+# This app can trigger real agent runs (real Gemini calls) and approve real contract writes,
+# so it must not sit open on the public internet with no login. Both env vars unset (the
+# local-dev default) leaves it open, matching every prior session's behavior; set both to
+# require HTTP Basic auth on every request, which is what the deployed instance does.
+_CONTROL_ROOM_USER = os.environ.get("CONTROL_ROOM_USER")
+_CONTROL_ROOM_PASSWORD = os.environ.get("CONTROL_ROOM_PASSWORD")
+_CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+
+
+@app.middleware("http")
+async def _require_basic_auth(request: Request, call_next):
+    # CORS preflight carries no credentials by design -- let CORSMiddleware (added below,
+    # so it wraps this middleware) answer it before auth is ever checked. The page shell
+    # itself (/, /static/*) stays open too: gating it would make the *browser's own* native
+    # Basic Auth dialog block the top-level navigation before our page's JS ever runs, which
+    # pre-empts the in-page login form below and can't be scripted against. Only /api/* -- the
+    # routes that actually read data or trigger real agent runs -- need a login.
+    if (
+        request.method == "OPTIONS"
+        or not (_CONTROL_ROOM_USER and _CONTROL_ROOM_PASSWORD)
+        or not request.url.path.startswith("/api/")
+    ):
+        return await call_next(request)
+    header = request.headers.get("authorization", "")
+    ok = False
+    if header.startswith("Basic "):
+        try:
+            decoded = base64.b64decode(header[6:]).decode("utf-8")
+            user, _, pwd = decoded.partition(":")
+            ok = secrets.compare_digest(user, _CONTROL_ROOM_USER) and secrets.compare_digest(
+                pwd, _CONTROL_ROOM_PASSWORD
+            )
+        except Exception:  # noqa: BLE001 -- any malformed header just fails auth, doesn't 500
+            ok = False
+    if not ok:
+        return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="Jarvis Control Room"'})
+    return await call_next(request)
+
+
+if _CORS_ORIGINS:
+    # Added after _require_basic_auth so it ends up outermost (Starlette wraps middleware in
+    # reverse registration order) -- CORS headers, including on a 401, must reach the browser
+    # or a cross-origin frontend (e.g. the Vercel copy of this UI) sees an opaque network error
+    # instead of a real 401 it can react to.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 @app.get("/api/targets")

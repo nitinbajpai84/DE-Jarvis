@@ -14,6 +14,7 @@ import yaml
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
+from emitters.control_plane import ensure_control_schema  # noqa: E402
 from emitters.sql_dialect import connect as sql_connect, resolve_schema  # noqa: E402
 from harness.daily_digest import gather as gather_digest  # noqa: E402
 
@@ -88,6 +89,13 @@ def pipeline_flow(target: str, domain: str = DEFAULT_DOMAIN) -> dict[str, Any]:
     control = resolve_schema(platform, domain, "control")
     con = sql_connect(target, platform)
     try:
+        # A brand-new domain/database (nothing has ever run against it yet -- e.g. a fresh
+        # deployment's volume-backed duckdb) has no control schema at all, so every query
+        # below 502'd instead of showing the empty state the frontend already renders for
+        # "pending" layers. Every other module that touches control.* does this defensively
+        # (agent_runs.py, jarvis_tools.py); this route was the one place that never had to,
+        # because local dev's duckdb file always had prior history.
+        ensure_control_schema(con, control)
         layers = {}
         for phase in PHASES:
             history = _run_history(con, control, phase, domain)
@@ -113,6 +121,7 @@ def recent_alerts(target: str, limit: int = 12, domain: str = DEFAULT_DOMAIN) ->
     control = resolve_schema(platform, domain, "control")
     con = sql_connect(target, platform)
     try:
+        ensure_control_schema(con, control)
         failures = con.execute(
             f"select source_id, phase, status, error_message, files_quarantined, ended_at "
             f"from {control}.run_registry "

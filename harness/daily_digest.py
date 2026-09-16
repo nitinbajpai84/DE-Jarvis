@@ -17,6 +17,7 @@ from datetime import date, datetime, timezone
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
+from emitters.control_plane import ensure_control_schema  # noqa: E402
 from emitters.sql_dialect import connect as sql_connect  # noqa: E402
 import yaml  # noqa: E402
 
@@ -45,6 +46,10 @@ def gather(target: str, for_date: date | None) -> dict:
     platform = _load_platform(target)
     control = platform["storage"]["control"]
     con = sql_connect(target, platform)
+    # Same fix as webapp/backend/pipeline.py: a genuinely fresh database (nothing has ever run
+    # against it) has no control schema yet, and this module is also invoked standalone (its
+    # own CLI/cron path), so it can't rely on some other caller having ensured it first.
+    ensure_control_schema(con, control)
 
     if for_date is None:
         # Don't trust the local clock for "today" -- this sandboxed environment's system clock

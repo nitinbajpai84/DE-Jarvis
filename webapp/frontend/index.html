@@ -166,9 +166,34 @@
   .run-gate-actions{display:flex;gap:8px;margin-top:8px;}
   .btn.reject{background:transparent;color:var(--critical);border:1px solid rgba(234,91,87,.4);}
   input[type=file]{display:none;}
+
+  .login-overlay{position:fixed;inset:0;background:rgba(4,6,10,.86);backdrop-filter:blur(3px);
+                 display:none;align-items:center;justify-content:center;z-index:100;padding:20px;}
+  .login-overlay.show{display:flex;}
+  .login-card{width:100%;max-width:340px;background:var(--bg-panel);border:1px solid var(--border);
+              border-radius:16px;padding:28px 26px;box-shadow:var(--shadow);}
+  .login-card h2{font-size:16px;margin-bottom:4px;}
+  .login-card .sub{font-size:12px;color:var(--text-muted);margin-bottom:18px;}
+  .login-card input{width:100%;background:var(--bg-panel-2);border:1px solid var(--border);
+                     color:var(--text-primary);font-size:13px;padding:9px 11px;border-radius:8px;
+                     font-family:inherit;margin-bottom:10px;}
+  .login-card .err{font-size:11.5px;color:var(--critical);min-height:16px;margin-bottom:6px;}
+  .login-card button{width:100%;padding:9px;margin-top:2px;}
 </style>
 </head>
 <body>
+
+<div class="login-overlay" id="loginOverlay">
+  <form class="login-card" id="loginForm">
+    <h2>Jarvis Control Room</h2>
+    <div class="sub">Sign in to view live pipeline &amp; agent-run data.</div>
+    <input type="text" id="loginUser" placeholder="Username" autocomplete="username" required>
+    <input type="password" id="loginPass" placeholder="Password" autocomplete="current-password" required>
+    <div class="err" id="loginErr"></div>
+    <button type="submit" class="btn primary">Sign in</button>
+  </form>
+</div>
+
 <div class="wrap">
 
   <div class="header">
@@ -302,8 +327,65 @@ function timeAgo(iso){
 let currentTarget = "duckdb";
 let currentDomain = "insurance";
 
+// ---------------- API base + auth ----------------
+// Same file serves two ways: the FastAPI backend hands it out directly at "/" (same-origin --
+// keep API_BASE "" so every call below is a same-origin relative fetch), or it's deployed
+// standalone to Vercel, where there's no same-origin backend to call and every request must
+// go to the Railway origin instead. Detected by host rather than hardcoded so this one file
+// keeps working unmodified from either place -- localhost/127.0.0.1 (local dev) and the
+// backend's own Railway domain (visiting the backend directly) both mean "same origin";
+// anything else (the Vercel domain) means "cross-origin, go to Railway".
+const RAILWAY_BACKEND = "https://jarvis-backend-production-dfb3.up.railway.app";
+const API_BASE = (["localhost", "127.0.0.1"].includes(location.hostname) || location.hostname.endsWith(".up.railway.app"))
+  ? "" : RAILWAY_BACKEND;
+
+function getCred(){ try { return sessionStorage.getItem('jarvis_cred'); } catch { return null; } }
+function setCred(c){ try { sessionStorage.setItem('jarvis_cred', c); } catch {} }
+function clearCred(){ try { sessionStorage.removeItem('jarvis_cred'); } catch {} }
+
+async function api(path, opts={}){
+  const headers = Object.assign({}, opts.headers || {});
+  const cred = getCred();
+  if (cred) headers['Authorization'] = 'Basic ' + cred;
+  const res = await fetch(API_BASE + path, Object.assign({}, opts, {headers}));
+  if (res.status === 401) {
+    clearCred();
+    await showLogin();
+    return api(path, opts);  // retry once, now with fresh credentials
+  }
+  return res;
+}
+
+function showLogin(){
+  return new Promise(resolve => {
+    const overlay = document.getElementById('loginOverlay');
+    const form = document.getElementById('loginForm');
+    const errEl = document.getElementById('loginErr');
+    errEl.textContent = '';
+    overlay.classList.add('show');
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const u = document.getElementById('loginUser').value;
+      const p = document.getElementById('loginPass').value;
+      const cred = btoa(`${u}:${p}`);
+      try {
+        const r = await fetch(API_BASE + '/api/targets', {headers: {Authorization: 'Basic ' + cred}});
+        if (r.ok) {
+          setCred(cred);
+          overlay.classList.remove('show');
+          resolve();
+        } else {
+          errEl.textContent = 'Invalid username or password.';
+        }
+      } catch {
+        errEl.textContent = 'Could not reach the backend.';
+      }
+    };
+  });
+}
+
 async function loadTargets(){
-  const r = await fetch('/api/targets'); const j = await r.json();
+  const r = await api('/api/targets'); const j = await r.json();
   const sel = document.getElementById('target');
   sel.innerHTML = j.targets.map(t => `<option value="${t}">${t}</option>`).join('');
   if (j.targets.includes('duckdb')) sel.value = 'duckdb';
@@ -312,7 +394,7 @@ async function loadTargets(){
 }
 
 async function loadDomains(){
-  const r = await fetch('/api/domains'); const j = await r.json();
+  const r = await api('/api/domains'); const j = await r.json();
   const sel = document.getElementById('domain');
   sel.innerHTML = j.domains.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
   if (j.domains.includes('insurance')) sel.value = 'insurance';
@@ -334,7 +416,7 @@ function arrowSvg(){
 async function refreshFlow(){
   const pillsEl = document.getElementById('connPills');
   try {
-    const r = await fetch(`/api/pipeline/flow?target=${currentTarget}&domain=${encodeURIComponent(currentDomain)}`);
+    const r = await api(`/api/pipeline/flow?target=${currentTarget}&domain=${encodeURIComponent(currentDomain)}`);
     if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
     const j = await r.json();
     pillsEl.innerHTML = `<div class="pill"><span class="dot"></span>${esc(currentTarget)}</div>`;
@@ -369,7 +451,7 @@ async function refreshFlow(){
 
 async function refreshAlerts(){
   try {
-    const r = await fetch(`/api/alerts?target=${currentTarget}&domain=${encodeURIComponent(currentDomain)}`);
+    const r = await api(`/api/alerts?target=${currentTarget}&domain=${encodeURIComponent(currentDomain)}`);
     if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
     const j = await r.json();
     const feed = document.getElementById('alertFeed');
@@ -395,7 +477,7 @@ async function refreshAlerts(){
 }
 
 async function loadSdlc(){
-  const r = await fetch('/api/sdlc'); const j = await r.json();
+  const r = await api('/api/sdlc'); const j = await r.json();
   const track = document.getElementById('track');
   let html = "";
   j.stages.forEach((s, i) => {
@@ -430,7 +512,7 @@ async function uploadFile(file){
   const fd = new FormData();
   fd.append('kind', selectedKind);
   fd.append('file', file);
-  const r = await fetch('/api/uploads', {method:'POST', body:fd});
+  const r = await api('/api/uploads', {method:'POST', body:fd});
   if (!r.ok) { alert('Upload failed: ' + (await r.json()).detail); return; }
   await loadUploads();
 }
@@ -440,7 +522,7 @@ function uploadIconSvg(){
 }
 
 async function loadUploads(){
-  const r = await fetch('/api/uploads'); const j = await r.json();
+  const r = await api('/api/uploads'); const j = await r.json();
   const el = document.getElementById('uploadList');
   if (j.uploads.length === 0) { el.innerHTML = `<div class="empty-note">No catalogues uploaded yet.</div>`; return; }
   el.innerHTML = j.uploads.map(u => {
@@ -466,7 +548,7 @@ async function loadUploads(){
 }
 
 async function approveUpload(id){
-  const r = await fetch(`/api/uploads/${id}/approve`, {method:'POST'});
+  const r = await api(`/api/uploads/${id}/approve`, {method:'POST'});
   if (!r.ok) { alert('Compile failed: ' + (await r.json()).detail); }
   await loadUploads();
   await loadSdlc();
@@ -478,21 +560,21 @@ async function startAgentRun(uploadId){
   const fd = new FormData();
   fd.append('upload_id', uploadId);
   fd.append('domain_hint', 'unknown');
-  const r = await fetch('/api/agent-runs', {method:'POST', body:fd});
+  const r = await api('/api/agent-runs', {method:'POST', body:fd});
   if (!r.ok) { alert('Could not start agent run: ' + (await r.json()).detail); return; }
   await loadAgentRuns();
 }
 window.startAgentRun = startAgentRun;
 
 async function approveRun(runId){
-  const r = await fetch(`/api/agent-runs/${runId}/approve`, {method:'POST'});
+  const r = await api(`/api/agent-runs/${runId}/approve`, {method:'POST'});
   if (!r.ok) { alert('Could not approve: ' + (await r.json()).detail); return; }
   await loadAgentRuns();
 }
 window.approveRun = approveRun;
 
 async function rejectRun(runId){
-  const r = await fetch(`/api/agent-runs/${runId}/reject`, {method:'POST'});
+  const r = await api(`/api/agent-runs/${runId}/reject`, {method:'POST'});
   if (!r.ok) { alert('Could not reject: ' + (await r.json()).detail); return; }
   await loadAgentRuns();
 }
@@ -535,10 +617,10 @@ function renderRunCard(run){
 async function loadAgentRuns(){
   const el = document.getElementById('agentRuns');
   try {
-    const r = await fetch('/api/agent-runs');
+    const r = await api('/api/agent-runs');
     const j = await r.json();
     if (!j.runs.length) { el.innerHTML = `<div class="empty-note">No agent runs yet — upload a workbook and click "Run via Agent".</div>`; return; }
-    const details = await Promise.all(j.runs.map(run => fetch(`/api/agent-runs/${run.run_id}`).then(r => r.ok ? r.json() : run)));
+    const details = await Promise.all(j.runs.map(run => api(`/api/agent-runs/${run.run_id}`).then(r => r.ok ? r.json() : run)));
     el.innerHTML = details.map(renderRunCard).join('');
   } catch (e) {
     el.innerHTML = `<div class="empty-note">Could not load agent runs: ${esc(e.message)}</div>`;
@@ -546,7 +628,16 @@ async function loadAgentRuns(){
 }
 
 // ---------------- boot ----------------
+async function ensureAuthed(){
+  // One check up front, not per-panel -- letting every panel's first fetch hit its own 401
+  // independently would pop the login overlay multiple times in the same instant.
+  const cred = getCred();
+  const r = await fetch(API_BASE + '/api/targets', {headers: cred ? {Authorization: 'Basic ' + cred} : {}});
+  if (r.status === 401) { clearCred(); await showLogin(); }
+}
+
 (async function(){
+  await ensureAuthed();
   await Promise.all([loadTargets(), loadDomains()]);
   await Promise.all([refreshFlow(), refreshAlerts(), loadSdlc(), loadUploads(), loadAgentRuns()]);
   setInterval(refreshFlow, 20000);
