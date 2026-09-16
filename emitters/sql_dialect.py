@@ -116,13 +116,21 @@ def connect(target: str, platform: dict[str, Any]) -> SqlConnection:
 
         from databricks import sql as databricks_sql
 
+        # .env is a local-dev convenience only -- gitignored, so it never exists in a deployed
+        # image (Railway supplies DATABRICKS_* via real environment variables instead). Every
+        # other .env reader in this codebase (bronze_loader.py, profiler.py, ops_tickets.py)
+        # already guards on .exists(); this one didn't, so target=databricks 500'd on every
+        # deployed request with "[Errno 2] No such file or directory: '.env'" -- caught live
+        # against the real Railway deployment while verifying Phase N's data reset, not by any
+        # local test (a local checkout always has a .env).
         env_path = REPO_ROOT / ".env"
-        for line in env_path.read_text().splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip())
+        if env_path.exists():
+            for line in env_path.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip())
 
         raw = databricks_sql.connect(
             server_hostname=os.environ["DATABRICKS_HOST"].replace("https://", ""),
