@@ -35,11 +35,11 @@ from emitters import profiler, versions  # noqa: E402
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
-# What an upload is profiled as. Tabular files go through the CSV sampler; documents through
-# the unstructured one, which reads their content with Gemini. Anything else is refused rather
-# than profiled as garbage -- an .xlsx read as CSV produces a "profile" of binary noise.
-_TABULAR = {".csv": ",", ".tsv": "\t"}
-_DOCUMENT = {".txt", ".md"}
+# What an upload is profiled as: tabular files (CSV, TSV, Excel) through the file sampler,
+# documents through the unstructured one, which reads their content with Gemini. The landing
+# category follows the same split (emitters/landing.py). Anything else is refused rather than
+# profiled as garbage.
+_DELIMITER = {".csv": ",", ".tsv": "\t", ".xlsx": ","}
 _NULL_SHIFT_POINTS = 5.0
 
 
@@ -51,10 +51,10 @@ def _root(domain: str) -> pathlib.Path:
 
 def allowed_path(connection: dict, domain: str, is_admin: bool) -> tuple[bool, str]:
     """File and document sources are globs into the server's landing area, which holds every
-    tenant's files. An admin may point anywhere under harness/; a company login only at its own
-    uploads, or at a landing path one of its own approved source contracts already names. Without
-    this, Star Investments could profile harness/landing/claims/* -- insurance's files -- by
-    typing the path."""
+    tenant's files. An admin may point anywhere under harness/; a company login only inside its
+    own landing folder (landing/<domain>/, see emitters/landing.py), or at a path one of its own
+    source contracts already names. Without this, Star Investments could profile insurance's
+    claims files by typing the path."""
     if connection.get("type") not in ("file", "unstructured"):
         return True, ""
     raw = str(connection.get("path") or "")
@@ -63,7 +63,7 @@ def allowed_path(connection: dict, domain: str, is_admin: bool) -> tuple[bool, s
     if is_admin:
         return True, ""
     rel = raw[len("harness/"):] if raw.startswith("harness/") else raw
-    own = [f"landing/uploads/{domain}/"]
+    own = [f"landing/{domain}/"]
     try:
         import yaml
         for p in sorted((REPO_ROOT / "contracts" / "sources" / domain).glob("*.source.yaml")):
@@ -83,7 +83,7 @@ def allowed_path(connection: dict, domain: str, is_admin: bool) -> tuple[bool, s
 
 def _where(profile: dict[str, Any]) -> dict[str, Any]:
     conn = dict(profile.get("connection") or {})
-    if str(conn.get("path") or "").startswith("landing/uploads/"):
+    if "/uploads/" in str(conn.get("path") or ""):
         conn["path"] = "(uploaded file)"
     return conn
 
@@ -262,20 +262,19 @@ def upload_source(domain: str, source_id: str, filename: str, content: bytes, by
         raise ValueError("The file is empty.")
     if len(content) > MAX_UPLOAD_BYTES:
         raise ValueError(f"The file is {len(content) // (1024 * 1024)} MB; the limit is {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
+    from emitters import landing
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", pathlib.Path(filename or "upload").name).strip("._") or "upload"
     ext = pathlib.Path(safe).suffix.lower()
-    if ext not in _TABULAR and ext not in _DOCUMENT:
-        raise ValueError(f"{ext or 'This file type'} isn't supported yet. Upload CSV, TSV, TXT or MD "
-                         f"(save a spreadsheet as CSV first).")
+    category = landing.category_for_file(safe)          # refuses unsupported types with a reason
 
     upload_id = uuid.uuid4().hex[:10]
-    dest_dir = profiler.HARNESS_DIR / "landing" / "uploads" / domain / source_id / upload_id
+    dest_dir = landing.source_dir(domain, category, source_id) / landing.UPLOADS / upload_id
     dest_dir.mkdir(parents=True, exist_ok=True)
     (dest_dir / safe).write_bytes(content)
     rel = (dest_dir / safe).relative_to(profiler.HARNESS_DIR).as_posix()
 
-    if ext in _TABULAR:
-        connection = {"type": "file", "path": rel, "format": "csv", "delimiter": _TABULAR[ext],
+    if category == "structured":
+        connection = {"type": "file", "path": rel, "format": ext.lstrip("."), "delimiter": _DELIMITER[ext],
                       "header": True, "encoding": "utf-8"}
     else:
         connection = {"type": "unstructured", "path": rel}

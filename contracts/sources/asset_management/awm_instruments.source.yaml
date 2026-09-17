@@ -7,7 +7,7 @@ owner: data-eng@example.com
 classification: internal
 connection:
   type: file
-  path: harness/landing/awm_instruments/awm_instruments_*.csv
+  path: harness/landing/asset_management/structured/awm_instruments/awm_instruments_*.csv
   format: csv
   delimiter: ','
   header: true
@@ -37,7 +37,7 @@ file_checks:
   expected_columns: 3
   row_count_deviation_pct: 40
   reject_on_schema_drift: true
-  quarantine_path: harness/quarantine/awm_instruments/
+  quarantine_path: harness/quarantine/asset_management/awm_instruments/
 quality_rules:
 - rule: regex
   columns:

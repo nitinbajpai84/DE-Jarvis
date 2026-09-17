@@ -53,7 +53,7 @@ def test_upload_creates_a_reviewable_first_version(workspace):
     assert view["profile"]["preview"]["header"] == ["claim_id", "policy_id", "amount"]
     assert view["profile"]["preview"]["rows"][1] == ["C2", "P2", ""]
     # stored in the domain's own upload area
-    assert view["profile"]["connection"]["path"].startswith("landing/uploads/testco/claims/")
+    assert view["profile"]["connection"]["path"].startswith("landing/testco/structured/claims/uploads/")
 
 
 def test_reupload_diffs_against_what_was_on_record_and_shows_gap_impact(workspace):
@@ -114,7 +114,7 @@ def test_document_upload_and_field_diff(workspace):
 
 def test_unsupported_and_bad_uploads_are_refused(workspace):
     with pytest.raises(ValueError, match="isn.t supported"):
-        source_review.upload_source("testco", "claims", "claims.xlsx", b"PK\x03\x04", by="alice")
+        source_review.upload_source("testco", "claims", "claims.pdf", b"%PDF-1.4", by="alice")
     with pytest.raises(ValueError, match="empty"):
         source_review.upload_source("testco", "claims", "claims.csv", b"", by="alice")
     with pytest.raises(ValueError, match="invalid id"):
@@ -134,10 +134,10 @@ def test_profiles_from_before_versioning_become_a_baseline(workspace):
 
 def test_company_paths_are_confined_to_their_own_files(workspace):
     allowed = source_review.allowed_path
-    assert allowed({"type": "file", "path": "landing/uploads/testco/claims/x/claims.csv"}, "testco", False)[0]
+    assert allowed({"type": "file", "path": "landing/testco/structured/claims/uploads/x/claims.csv"}, "testco", False)[0]
     assert not allowed({"type": "file", "path": "landing/claims/*.csv"}, "testco", False)[0]
-    assert not allowed({"type": "file", "path": "landing/uploads/otherco/*.csv"}, "testco", False)[0]
-    assert not allowed({"type": "file", "path": "landing/uploads/testco/../../claims/*.csv"}, "testco", False)[0]
+    assert not allowed({"type": "file", "path": "landing/otherco/structured/claims/*.csv"}, "testco", False)[0]
+    assert not allowed({"type": "file", "path": "landing/testco/../otherco/claims/*.csv"}, "testco", False)[0]
     assert allowed({"type": "file", "path": "landing/claims/*.csv"}, "testco", True)[0]          # admin
     assert allowed({"type": "api", "endpoint": "https://x"}, "testco", False)[0]
 

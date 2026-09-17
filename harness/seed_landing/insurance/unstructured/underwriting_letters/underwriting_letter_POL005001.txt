@@ -1,0 +1,48 @@
+STAR INSURANCE COMPANY
+Underwriting Department
+1 Raffles Place, Singapore 048616
+
+UNDERWRITING DECISION LETTER
+
+Date: 18 September 2026
+Policy Number: PN-50000021
+Applicant: Test Person 1
+Product: Commercial Property Package (PROD0050)
+Underwriter: J. Tan, Senior Underwriter, Commercial Lines
+
+Dear Applicant,
+
+Thank you for your application for a Commercial Property Package policy submitted on
+15 September 2026. We have completed our underwriting review of the risk, including the site
+survey report, five-year loss history, and the requested coverage limits.
+
+DECISION: APPROVED WITH CONDITIONS
+
+Coverage is approved subject to the following conditions:
+
+1. Sprinkler system inspection certificate to be provided within 30 days of policy inception.
+2. Business interruption sub-limit capped at SGD 500,000 pending a full BI worksheet.
+3. A SGD 5,000 deductible applies to all water-damage claims, reflecting the property's
+   proximity to a flood-risk zone as identified in the site survey (Flood Zone: Moderate).
+
+RISK ASSESSMENT SUMMARY
+
+- Property age: 12 years, reinforced concrete construction, Class A fire rating.
+- Occupancy: Light manufacturing, single tenant, no hazardous materials on site.
+- Prior claims (5-year history): One water-damage claim, SGD 18,400, closed 2023.
+- Site survey risk rating: Moderate (flood exposure), Low (fire), Low (theft).
+
+PREMIUM
+
+Annual premium: SGD 34,250.00, payable quarterly. This reflects a 12% loading above standard
+rate for the flood-zone exposure noted above, offset by a 5% loyalty credit for the applicant's
+existing Auto Fleet policy (PN-50000005) with Star Insurance.
+
+This decision is valid for 60 days from the date of this letter. Please countersign and return
+the enclosed policy schedule to bind coverage.
+
+Yours faithfully,
+
+J. Tan
+Senior Underwriter, Commercial Lines
+Star Insurance Company

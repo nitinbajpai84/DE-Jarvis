@@ -383,6 +383,17 @@
     padding:7px 10px;font:inherit;font-size:12px;color:var(--text-primary);}
   .rv-note{font-size:12px;color:var(--text-muted);line-height:1.5;}
   .rv-signed{font-size:12px;color:var(--text-secondary);}
+  .lz-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;}
+  @media (max-width:900px){.lz-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+  @media (max-width:520px){.lz-grid{grid-template-columns:1fr;}}
+  .lz-col{border:1px solid var(--border-soft);border-radius:10px;background:var(--bg-panel-2);padding:11px 12px;min-width:0;}
+  .lz-col h4{margin:0 0 2px;font-size:12.5px;color:var(--text-primary);display:flex;justify-content:space-between;gap:8px;}
+  .lz-col h4 span{font-family:'IBM Plex Mono';font-size:10.5px;color:var(--text-muted);font-weight:500;}
+  .lz-what{font-size:10.5px;color:var(--text-muted);margin-bottom:8px;}
+  .lz-src{display:flex;justify-content:space-between;gap:8px;font-size:11.5px;padding:4px 0;border-top:1px solid var(--border-soft);}
+  .lz-src code{font-family:'IBM Plex Mono';font-size:11px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .lz-src span{font-family:'IBM Plex Mono';font-size:10.5px;color:var(--text-muted);white-space:nowrap;}
+  .lz-path{font-family:'IBM Plex Mono';font-size:10.5px;color:var(--text-muted);margin-top:8px;}
   .est-table-wrap{overflow-x:auto;}
   .est-table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px;}
   .est-table th{text-align:left;font-family:'IBM Plex Mono';font-size:10px;letter-spacing:.06em;text-transform:uppercase;
@@ -948,13 +959,18 @@ function renderScreen(){
         <div class="stat ${disc.some(d => d.review_status === 'pending') ? '' : 'muted'}"><b>${fmtNum(disc.filter(d => d.review_status === 'pending').length)}</b><span>awaiting review</span></div>
       </div>
     </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Landing zone</h3>
+        <span class="note">Where ${esc(currentDomain)}'s raw data arrives before bronze — separated by company, then by kind of source</span></div>
+      <div id="landingZone"><div class="empty-note">Loading…</div></div>
+    </div>
     <div class="panel" id="uploadPanel">
       <div class="panel-head"><h3>Upload a file</h3>
-        <span class="note">CSV, TSV, TXT or MD · a new file for an existing source becomes its next version, compared with the last</span></div>
+        <span class="note">CSV, TSV, Excel, TXT, MD or HTML · a new file for an existing source becomes its next version, compared with the last</span></div>
       <div class="conn-form">
         <label>Source id<input id="upSourceId" list="upSourceIds" placeholder="e.g. claims_extract" autocomplete="off"></label>
         <datalist id="upSourceIds">${disc.map(d => `<option value="${esc(d.source_id)}"></option>`).join('')}</datalist>
-        <label>File<input id="upFile" type="file" accept=".csv,.tsv,.txt,.md"></label>
+        <label>File<input id="upFile" type="file" accept=".csv,.tsv,.xlsx,.txt,.md,.html,.htm"></label>
         <label>What changed? (optional)<input id="upNote" placeholder="e.g. corrected March extract"></label>
       </div>
       <div class="conn-actions"><button class="btn primary" id="upBtn" onclick="uploadSourceFile()">Upload and profile</button></div>
@@ -1194,14 +1210,14 @@ dim_awm_portfolio | scd1"></textarea></label>
   }
   if (s.id === 'build') { refreshFlow(); loadAgentRuns(); }
   if (s.id === 'operate') { refreshAlerts(); loadTicketsUI(); }
-  if (s.id === 'sources') { renderConnFields(); loadProfiles(); loadEstate(); }
+  if (s.id === 'sources') { renderConnFields(); loadProfiles(); loadEstate(); loadLandingZone(); }
   if (s.id === 'validate') { loadDashboardUI(); }
 }
 
 /* ============================== discovery (step 01) ============================== */
 const CONN_FIELD_DEFS = {
   file: [
-    {id:'connPath', label:'Path (glob under harness/)', ph:'harness/landing/orders/orders_*.csv'},
+    {id:'connPath', label:'Path (glob under harness/)', ph:'landing/insurance/structured/claims/claims_*.csv'},
     {id:'connDelimiter', label:'Delimiter', ph:',', value:','},
     {id:'connEncoding', label:'Encoding', ph:'utf-8', value:'utf-8'},
     {id:'connHeader', label:'Has header row', checkbox:true, value:true},
@@ -1213,7 +1229,7 @@ const CONN_FIELD_DEFS = {
     {id:'connEndpoint', label:'Endpoint URL', ph:'https://api.example.com/v1/records'},
   ],
   unstructured: [
-    {id:'connPath', label:'Path (glob under harness/)', ph:'harness/landing/docs/*.txt'},
+    {id:'connPath', label:'Path (glob under harness/)', ph:'landing/insurance/unstructured/letters/*.txt'},
   ],
 };
 
@@ -1560,7 +1576,7 @@ function renderReview(v){
   }
 
   const p = v.profile || {};
-  const canReprofile = p.connection && !(p.connection.path || '').startsWith('landing/uploads/');
+  const canReprofile = p.connection && !(p.connection.path || '').includes('/uploads/');
   panel.hidden = false;
   panel.innerHTML = `
     <div class="rv-head">
@@ -1679,6 +1695,7 @@ async function uploadSourceFile(){
     document.getElementById('upFile').value = '';
     document.getElementById('upNote').value = '';
     await loadProfiles();
+    await loadLandingZone();
     await refreshJourneyDataQuietly();
     renderReview(j);
     document.getElementById('reviewPanel').scrollIntoView({behavior: 'smooth', block: 'start'});
@@ -1689,6 +1706,37 @@ async function uploadSourceFile(){
   }
 }
 window.uploadSourceFile = uploadSourceFile;
+
+const LZ_WHAT = {
+  structured: 'CSV, TSV and Excel files',
+  unstructured: 'documents and scraped content',
+  api: 'raw responses, one file per pull',
+  database: 'extracts, one file per pull',
+};
+function fmtBytes(n){
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1024 / 1024).toFixed(1) + ' MB';
+}
+async function loadLandingZone(){
+  const host = document.getElementById('landingZone');
+  if (!host) return;
+  try {
+    const r = await api(`/api/landing?domain=${encodeURIComponent(currentDomain)}`);
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    host.innerHTML = `<div class="lz-grid">${j.categories.map(c => `<div class="lz-col">
+        <h4>${esc(c.category)}<span>${c.sources.length} source${c.sources.length === 1 ? '' : 's'}</span></h4>
+        <div class="lz-what">${esc(LZ_WHAT[c.category] || '')}</div>
+        ${c.sources.map(s => `<div class="lz-src" title="${esc(s.path)}"><code>${esc(s.source_id)}</code>
+          <span>${fmtNum(s.files)} file${s.files === 1 ? '' : 's'}${s.uploads ? ` · ${fmtNum(s.uploads)} uploaded` : ''} · ${fmtBytes(s.bytes)}</span></div>`).join('')
+          || '<div class="lz-src"><span>nothing landed yet</span></div>'}
+      </div>`).join('')}</div>
+      <div class="lz-path">${esc(j.root)}/&lt;category&gt;/&lt;source&gt;/</div>`;
+  } catch (e) {
+    host.innerHTML = `<div class="empty-note">Could not read the landing zone: ${esc(e.message)}</div>`;
+  }
+}
 
 function profileCard(p, opts){
   const rows = (p.columns || []).map(c => `<tr>

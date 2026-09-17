@@ -11,7 +11,7 @@ import pathlib, random
 from datetime import date, timedelta
 
 random.seed(7)
-OUT = pathlib.Path(__file__).resolve().parents[1] / "landing" / "policy_docs"
+OUT = pathlib.Path(__file__).resolve().parents[1] / "landing" / "demo" / "unstructured" / "policy_docs"
 OUT.mkdir(parents=True, exist_ok=True)
 
 COUNTRIES = ["Singapore", "United Kingdom", "Germany", "India"]

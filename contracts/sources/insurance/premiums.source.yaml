@@ -9,7 +9,7 @@ owner: data-eng@example.com
 classification: internal
 connection:
   type: file
-  path: harness/landing/premiums/premiums_*.csv
+  path: harness/landing/insurance/structured/premiums/premiums_*.csv
   format: csv
   delimiter: ','
   header: true
@@ -57,7 +57,7 @@ file_checks:
   expected_columns: 8
   row_count_deviation_pct: 40
   reject_on_schema_drift: true
-  quarantine_path: harness/quarantine/premiums/
+  quarantine_path: harness/quarantine/insurance/premiums/
 quality_rules:
 - rule: not_null
   columns:

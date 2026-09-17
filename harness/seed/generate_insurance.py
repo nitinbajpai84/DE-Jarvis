@@ -40,7 +40,8 @@ random.seed(42)
 fake = Faker()
 Faker.seed(42)
 
-LANDING = pathlib.Path(__file__).resolve().parents[1] / "landing"
+# landing/<domain>/<category>/<source_id>/ -- see emitters/landing.py
+LANDING = pathlib.Path(__file__).resolve().parents[1] / "landing" / "insurance" / "structured"
 TODAY = date(2026, 9, 15)
 
 N_CUSTOMERS = 5000
@@ -63,7 +64,7 @@ def _write(name: str, cols: list[str], rows: list[list], filename: str | None = 
         w = csv.writer(f)
         w.writerow(cols)
         w.writerows(rows)
-    rel = str(path.relative_to(LANDING.parent.parent))
+    rel = str(path.relative_to(LANDING.parents[3]))
     print(f"{rel:<42} rows={len(rows):<6} cols={len(cols)}")
 
 

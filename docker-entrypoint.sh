@@ -42,6 +42,11 @@ if [ -n "${JARVIS_DATA_ROOT:-}" ]; then
   # harness/ mixes source (.py) with state (the duckdb file, checkpoints, logs) -- symlink
   # only the state, leave the source where the image put it.
   ln -sfn "$DATA/harness_state/landing" /app/harness/landing
+
+  # landing/<source>/ -> landing/<domain>/<category>/<source>/, and the contracts/profiles on the
+  # volume that point into it. Idempotent (a no-op once migrated); a failure is logged, never
+  # fatal -- an unmigrated landing zone still serves every contract that hasn't been rewritten.
+  (cd /app && python -m emitters.landing migrate) || echo "landing migration failed -- see above"
   ln -sfn "$DATA/harness_state/quarantine" /app/harness/quarantine
   ln -sfn "$DATA/harness_state/agent_run_logs" /app/harness/agent_run_logs
   ln -sf "$DATA/harness_state/jarvis.duckdb" /app/harness/jarvis.duckdb

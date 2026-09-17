@@ -134,10 +134,12 @@ def _landing_glob(pattern: str) -> list[pathlib.Path]:
     )
 
 
-def _read_csv(path: pathlib.Path, delimiter: str) -> tuple[list[str], list[list[str]]]:
-    with path.open(newline="", encoding="utf-8") as f:
-        rows = list(csv.reader(f, delimiter=delimiter))
-    return (rows[0], rows[1:]) if rows else ([], [])
+def _read_csv(path: pathlib.Path, delimiter: str, header: bool = True,
+              encoding: str = "utf-8") -> tuple[list[str], list[list[str]]]:
+    """CSV/TSV, or an Excel workbook's first sheet (emitters/landing.py read_tabular) -- a
+    structured source can land as either and bronze sees the same header and text rows."""
+    from emitters.landing import read_tabular
+    return read_tabular(path, delimiter, header, encoding)
 
 
 # --------------------------------------------------------------------------- connectors
@@ -146,7 +148,8 @@ def _extract_file_batches(contract: dict) -> list[Batch]:
     conn = contract["connection"]
     batches = []
     for path in _landing_glob(conn["path"]):
-        header, rows = _read_csv(path, conn.get("delimiter", ","))
+        header, rows = _read_csv(path, conn.get("delimiter", ","), conn.get("header", True),
+                                 conn.get("encoding", "utf-8"))
         batches.append(Batch(path.name, str(path), header, rows,
                               path.stat().st_size / 1024, _sha256_file(path)))
     return batches
@@ -175,7 +178,12 @@ def _extract_database_batches(contract: dict) -> list[Batch]:
     source_id = contract["source_id"]
     name = f"{source_id}_extract_{datetime.now(timezone.utc):%Y%m%d}"
     payload = json.dumps(rows, default=str).encode()
-    return [Batch(name, conn["table"], header, rows, len(payload) / 1024, _sha256_bytes(payload))]
+    # Land, then load: the extract is written to landing/<domain>/database/<source_id>/ before
+    # bronze sees it, so every database pull leaves a raw copy to audit or replay -- it used to
+    # go straight from the warehouse into bronze with nothing in between.
+    from emitters.landing import land_database_extract
+    landed = land_database_extract(contract["domain"], source_id, header, rows)
+    return [Batch(name, str(landed), header, rows, len(payload) / 1024, _sha256_bytes(payload))]
 
 
 def _extract_api_batches(contract: dict) -> list[Batch]:
@@ -186,14 +194,18 @@ def _extract_api_batches(contract: dict) -> list[Batch]:
     url = conn["endpoint"] + "?limit=200"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (jarvis-data-platform)"})
     with urllib.request.urlopen(req, timeout=30) as resp:
-        payload = json.loads(resp.read())
+        raw_bytes = resp.read()
+    # land the response exactly as received (landing/<domain>/api/<source_id>/) before parsing it
+    from emitters.landing import land_api_payload
+    landed = land_api_payload(contract["domain"], contract["source_id"], raw_bytes)
+    payload = json.loads(raw_bytes)
     api_rows = payload["data"]["rows"]
     rows = [[d.get(c) for c in schema_cols] for d in api_rows]
 
     source_id = contract["source_id"]
     name = f"{source_id}_extract_{datetime.now(timezone.utc):%Y%m%d}"
     raw = json.dumps(api_rows).encode()
-    return [Batch(name, conn["endpoint"], schema_cols, rows, len(raw) / 1024, _sha256_bytes(raw))]
+    return [Batch(name, str(landed), schema_cols, rows, len(raw) / 1024, _sha256_bytes(raw))]
 
 
 def _extract_unstructured_batches(contract: dict) -> tuple[list[pathlib.Path], Batch]:

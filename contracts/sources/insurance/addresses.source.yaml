@@ -9,7 +9,7 @@ owner: data-eng@example.com
 classification: pii
 connection:
   type: file
-  path: harness/landing/addresses/addresses_*.csv
+  path: harness/landing/insurance/structured/addresses/addresses_*.csv
   format: csv
   delimiter: ','
   header: true
@@ -61,7 +61,7 @@ file_checks:
   expected_columns: 9
   row_count_deviation_pct: 40
   reject_on_schema_drift: true
-  quarantine_path: harness/quarantine/addresses/
+  quarantine_path: harness/quarantine/insurance/addresses/
 quality_rules:
 - rule: not_null
   columns:

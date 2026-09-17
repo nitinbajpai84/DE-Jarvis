@@ -12,7 +12,8 @@ import random
 from datetime import date
 
 random.seed(317)
-LANDING = pathlib.Path(__file__).resolve().parents[1] / "landing"
+# landing/<domain>/<category>/<source_id>/ -- see emitters/landing.py
+LANDING = pathlib.Path(__file__).resolve().parents[1] / "landing" / "insurance" / "structured"
 TODAY = date(2026, 9, 17)
 
 

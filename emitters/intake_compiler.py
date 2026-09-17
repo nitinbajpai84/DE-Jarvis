@@ -243,7 +243,8 @@ def _source_contract(spec: dict, src: dict, warnings: list[str]) -> dict[str, An
     ext = file.get("extension") or file.get("format", "csv")
     connection: dict[str, Any] = {
         "type": "file",
-        "path": f"harness/landing/{code}/{code}_*.{ext}",
+        # company first, kind of source second -- see emitters/landing.py
+        "path": f"harness/landing/{domain}/structured/{code}/{code}_*.{ext}",
         "format": file.get("format", "csv"),
     }
     if file.get("delimiter"):
@@ -307,7 +308,7 @@ def _source_contract(spec: dict, src: dict, warnings: list[str]) -> dict[str, An
         "expected_columns": len(attrs),
         "row_count_deviation_pct": 40,
         "reject_on_schema_drift": True,
-        "quarantine_path": f"harness/quarantine/{code}/",
+        "quarantine_path": f"harness/quarantine/{domain}/{code}/",
     }
 
     attr_rules = [r for r in spec.get("dq_rules", []) if r.get("target") == code and r.get("level") == "attribute"]

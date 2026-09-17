@@ -247,6 +247,20 @@ def api_discovery_profile(request: Request, body: ProfileRequest):
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+@app.get("/api/landing")
+def api_landing(request: Request, domain: str = pipeline.DEFAULT_DOMAIN):
+    """One company's landing zone -- structured, unstructured, api and database, per source."""
+    _check_domain(request, domain)
+    from emitters import landing
+    try:
+        landing.source_rel(domain, "structured", "x")   # validates nothing odd reaches the filesystem
+        from emitters.versions import check_id
+        check_id(domain)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return landing.inventory(domain)
+
+
 @app.post("/api/discovery/upload")
 async def api_discovery_upload(request: Request, domain: str = Form(...), source_id: str = Form(...),
                                note: str = Form(""), file: UploadFile = File(...)):

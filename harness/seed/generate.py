@@ -10,7 +10,7 @@ import csv, hashlib, pathlib, random
 from datetime import date, datetime, timedelta
 
 random.seed(42)
-OUT = pathlib.Path(__file__).resolve().parents[1] / "landing" / "orders"
+OUT = pathlib.Path(__file__).resolve().parents[1] / "landing" / "demo" / "structured" / "orders"
 OUT.mkdir(parents=True, exist_ok=True)
 
 COLS = ["order_id","customer_id","order_date","order_ts","status","currency","gross_amount","country"]

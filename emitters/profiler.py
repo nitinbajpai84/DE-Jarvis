@@ -170,7 +170,7 @@ def _load_dotenv_once() -> None:
 
 
 def _sample_file(connection: dict, limit: int) -> tuple[list[str], list[list[Any]], int | None]:
-    import csv
+    from emitters.landing import read_tabular
     files = _glob_files(connection)
     if not files:
         raise FileNotFoundError(f"no files match {connection['path']!r}")
@@ -179,14 +179,12 @@ def _sample_file(connection: dict, limit: int) -> tuple[list[str], list[list[Any
     rows: list[list[Any]] = []
     total = 0
     for f in files:
-        with f.open(newline="", encoding=connection.get("encoding", "utf-8")) as fh:
-            reader = csv.reader(fh, delimiter=delimiter)
-            file_rows = list(reader)
-        if not file_rows:
+        file_header, body = read_tabular(f, delimiter, connection.get("header", True),
+                                         connection.get("encoding", "utf-8"))
+        if not file_header and not body:
             continue
         if not header:
-            header = file_rows[0]
-        body = file_rows[1:] if connection.get("header", True) else file_rows
+            header = file_header
         total += len(body)
         if len(rows) < limit:
             rows.extend(body[: limit - len(rows)])
