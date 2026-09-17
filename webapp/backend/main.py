@@ -265,6 +265,29 @@ def api_intent_delete(request: Request, domain: str, intent_id: str):
     return intent.delete_intent(domain, intent_id)
 
 
+class CatalogueChatRequest(BaseModel):
+    kind: str            # "intent" | "architecture"
+    domain: str
+    history: list[dict]  # [{"role": "user"|"assistant", "text": str}, ...]
+    message: str
+
+
+@app.post("/api/catalogue/chat")
+def api_catalogue_chat(request: Request, body: CatalogueChatRequest):
+    """A real conversation with the BA (intent) or SA (architecture) agent, instead of typing
+    every field into the form directly -- see emitters/catalogue_chat.py. Nothing here writes to
+    contracts/; a structured suggestion (when the agent has enough to draft one) is only ever
+    applied to the unsaved form on the frontend."""
+    _check_domain(request, body.domain)
+    try:
+        from emitters.catalogue_chat import chat_turn
+        return chat_turn(body.kind, body.domain, body.history, body.message)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 -- surface the real error (bad key, model error, ...)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @app.get("/api/intent/gap-analysis")
 def api_gap_analysis(request: Request, domain: str = pipeline.DEFAULT_DOMAIN):
     _check_domain(request, domain)

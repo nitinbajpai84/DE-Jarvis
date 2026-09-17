@@ -270,6 +270,22 @@
   .intent-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
   @media (max-width:640px){.intent-row{grid-template-columns:1fr;}}
   .intent-help{font-size:10.5px;color:var(--text-muted);margin-top:-2px;}
+  .chat-wrap{display:flex;flex-direction:column;gap:10px;}
+  .chat-log{max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:9px;padding-right:4px;}
+  .chat-log:empty::after{content:'Say hello to get started.';color:var(--text-muted);font-size:12.5px;}
+  .chat-bubble{max-width:82%;padding:9px 13px;border-radius:12px;font-size:13px;line-height:1.5;white-space:pre-wrap;}
+  .chat-bubble.user{align-self:flex-end;background:rgba(47,224,198,.13);border:1px solid rgba(47,224,198,.3);color:var(--text-primary);}
+  .chat-bubble.assistant{align-self:flex-start;background:var(--bg-panel-2);border:1px solid var(--border-soft);color:var(--text-secondary);}
+  .chat-suggestion{align-self:flex-start;max-width:92%;background:rgba(240,193,90,.08);border:1px solid rgba(240,193,90,.3);
+                   border-radius:12px;padding:11px 13px;}
+  .chat-suggestion pre{margin:0 0 9px;font-size:11px;font-family:'IBM Plex Mono';color:var(--text-secondary);
+                       white-space:pre-wrap;max-height:180px;overflow-y:auto;}
+  .chat-input-row{display:flex;gap:8px;align-items:flex-end;}
+  .chat-input-row textarea{flex:1;min-height:40px;max-height:100px;background:var(--bg-panel-2);border:1px solid var(--border);
+                           border-radius:8px;color:var(--text-primary);padding:9px 11px;font-family:inherit;font-size:13px;resize:vertical;}
+  .chat-mic{flex:none;width:38px;height:38px;border-radius:8px;border:1px solid var(--border);background:var(--bg-panel-2);
+           color:var(--text-secondary);cursor:pointer;font-size:15px;}
+  .chat-mic.recording{background:rgba(234,91,87,.15);border-color:var(--critical);color:var(--critical);animation:blink 1.2s infinite;}
   .diagram-tabs{display:flex;gap:8px;}
   .diagram-tabs .btn.active{background:rgba(47,224,198,.1);border-color:var(--accent);color:var(--text-primary);}
   .diagram-svg-wrap{overflow-x:auto;background:var(--bg-panel-2);border:1px solid var(--border-soft);border-radius:10px;padding:14px;}
@@ -568,7 +584,11 @@ async function loadDomains(){
   // nothing to switch between -- lock the selector instead of showing a live-looking dropdown
   // with one dead-end option.
   sel.disabled = j.domains.length <= 1;
-  sel.addEventListener('change', () => { currentDomain = sel.value; reloadJourney(); });
+  sel.addEventListener('change', () => {
+    currentDomain = sel.value;
+    if (typeof chatState !== 'undefined') { chatState.intent.history = []; chatState.architecture.history = []; }
+    reloadJourney();
+  });
 }
 
 /* ============================== journey + rail ============================== */
@@ -790,6 +810,11 @@ function renderScreen(){
       </div>
     </div>
     <div class="panel">
+      <div class="panel-head"><h3>Talk to Agent 3</h3>
+        <span class="note">Have a conversation instead of typing the form — speak or type, it drafts the intent for you to review</span></div>
+      ${chatWidgetHtml('intent')}
+    </div>
+    <div class="panel">
       <div class="panel-head"><h3 id="intentFormTitle">Intent</h3>
         <span class="note">What this application is actually for — checked at G1</span></div>
       <div class="intent-form">
@@ -817,6 +842,11 @@ active portfolio | has an open position as of the reporting date | investments t
     <div class="panel">
       <div class="panel-head"><h3>Gap analysis</h3><span class="note">Recomputed fresh every run — never trusted from a stale file</span></div>
       <div id="gapResults"><div class="empty-note">Run gap analysis to see results here.</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Talk to Agent 2</h3>
+        <span class="note">Have a conversation instead of typing the form — speak or type, it drafts the architecture for you to review</span></div>
+      ${chatWidgetHtml('architecture')}
     </div>
     <div class="panel">
       <div class="panel-head"><h3>Architecture</h3>
@@ -1627,6 +1657,124 @@ function applyArchImageSuggestion(jsonStr){
   document.getElementById('archImageResult').innerHTML += `<div class="conn-result ok" style="margin-top:8px;">Applied to the form — review and click "Save architecture" to persist.</div>`;
 }
 window.applyArchImageSuggestion = applyArchImageSuggestion;
+
+/* ============================== catalogue chat (step 02, agents 2 & 3) ============================== */
+const chatState = {
+  intent: {history: []},
+  architecture: {history: []},
+};
+const SPEECH_RECOGNITION = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+function chatWidgetHtml(kind){
+  const micButton = SPEECH_RECOGNITION
+    ? `<button class="chat-mic" id="chatMic-${kind}" type="button" onclick="toggleChatMic('${kind}')" title="Speak instead of typing">🎤</button>`
+    : '';
+  return `<div class="chat-wrap">
+    <div class="chat-log" id="chatLog-${kind}"></div>
+    <div class="chat-input-row">
+      <textarea id="chatInput-${kind}" placeholder="${SPEECH_RECOGNITION ? 'Type or tap the mic to speak…' : 'Type your message…'}"
+                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChatMessage('${kind}');}"></textarea>
+      ${micButton}
+      <button class="btn primary" onclick="sendChatMessage('${kind}')">Send</button>
+    </div>
+    ${SPEECH_RECOGNITION ? '' : '<div class="intent-help">Voice input needs a browser with Web Speech API support (e.g. Chrome) — typing still works everywhere.</div>'}
+  </div>`;
+}
+window.chatWidgetHtml = chatWidgetHtml;
+
+function chatBubbleHtml(role, text){
+  return `<div class="chat-bubble ${role === 'user' ? 'user' : 'assistant'}">${esc(text)}</div>`;
+}
+
+function chatSuggestionHtml(kind, suggestion){
+  const id = `sugg-${kind}-${Date.now()}`;
+  return `<div class="chat-suggestion">
+    <div style="font-size:11px;color:var(--gold);font-weight:600;margin-bottom:7px;text-transform:uppercase;letter-spacing:.4px;">Draft ready to review</div>
+    <pre>${esc(JSON.stringify(suggestion, null, 2))}</pre>
+    <button class="btn primary" onclick='applyChatSuggestion("${kind}", ${JSON.stringify(JSON.stringify(suggestion))})'>Apply to the form</button>
+  </div>`;
+}
+
+async function sendChatMessage(kind){
+  const input = document.getElementById(`chatInput-${kind}`);
+  const text = input.value.trim();
+  if (!text) return;
+  const log = document.getElementById(`chatLog-${kind}`);
+  const state = chatState[kind];
+  log.insertAdjacentHTML('beforeend', chatBubbleHtml('user', text));
+  input.value = '';
+  log.scrollTop = log.scrollHeight;
+  const thinkingId = `thinking-${kind}`;
+  log.insertAdjacentHTML('beforeend', `<div class="chat-bubble assistant" id="${thinkingId}">…</div>`);
+  log.scrollTop = log.scrollHeight;
+  try {
+    const r = await api('/api/catalogue/chat', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({kind, domain: currentDomain, history: state.history, message: text})});
+    const j = await r.json();
+    document.getElementById(thinkingId)?.remove();
+    if (!r.ok) { log.insertAdjacentHTML('beforeend', chatBubbleHtml('assistant', 'Error: ' + (j.detail || 'could not reach the agent'))); return; }
+    state.history.push({role: 'user', text});
+    state.history.push({role: 'assistant', text: j.reply});
+    log.insertAdjacentHTML('beforeend', chatBubbleHtml('assistant', j.reply));
+    if (j.suggestion) log.insertAdjacentHTML('beforeend', chatSuggestionHtml(kind, j.suggestion));
+    log.scrollTop = log.scrollHeight;
+  } catch (e) {
+    document.getElementById(thinkingId)?.remove();
+    log.insertAdjacentHTML('beforeend', chatBubbleHtml('assistant', 'Error: ' + e.message));
+  }
+}
+window.sendChatMessage = sendChatMessage;
+
+function applyChatSuggestion(kind, jsonStr){
+  const s = JSON.parse(jsonStr);
+  if (kind === 'intent') {
+    if (s.name) document.getElementById('intentName').value = s.name;
+    if (s.business_outcome) document.getElementById('intentOutcome').value = s.business_outcome;
+    if (s.definition_of_done) document.getElementById('intentDoD').value = s.definition_of_done;
+    if (s.sla?.freshness) document.getElementById('intentFreshness').value = s.sla.freshness;
+    if (s.sla?.availability) document.getElementById('intentAvailability').value = s.sla.availability;
+    if ((s.reports||[]).length) document.getElementById('intentReports').value = formatPipeLines(
+      s.reports.map(r => ({...r, required_data_points: (r.required_data_points||[]).join(', ')})),
+      ['name','description','required_data_points']);
+    if ((s.definitions||[]).length) document.getElementById('intentDefinitions').value = formatPipeLines(s.definitions, ['term','definition','source']);
+  } else {
+    if (s.rto) document.getElementById('archRto').value = s.rto;
+    if (s.rpo) document.getElementById('archRpo').value = s.rpo;
+    if (s.layering_rationale) document.getElementById('archRationale').value = s.layering_rationale;
+    if (s.volume_expectations) document.getElementById('archVolume').value = s.volume_expectations;
+    if ((s.entity_scd||[]).length) document.getElementById('archScd').value = formatPipeLines(s.entity_scd, ['entity','scd_type']);
+    if ((s.risks||[]).length) document.getElementById('archRisks').value = formatPipeLines(s.risks, ['risk','mitigation']);
+  }
+  const log = document.getElementById(`chatLog-${kind}`);
+  log.insertAdjacentHTML('beforeend', `<div class="chat-bubble assistant">Applied to the ${kind} form above — review it, then click Save.</div>`);
+  log.scrollTop = log.scrollHeight;
+}
+window.applyChatSuggestion = applyChatSuggestion;
+
+let activeMicRecognition = null;
+function toggleChatMic(kind){
+  if (!SPEECH_RECOGNITION) return;
+  const btn = document.getElementById(`chatMic-${kind}`);
+  if (activeMicRecognition) {
+    activeMicRecognition.stop();
+    return;
+  }
+  const rec = new SPEECH_RECOGNITION();
+  rec.lang = 'en-US';
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+  activeMicRecognition = rec;
+  btn.classList.add('recording');
+  rec.onresult = (e) => {
+    const transcript = Array.from(e.results).map(r => r[0].transcript).join(' ');
+    const input = document.getElementById(`chatInput-${kind}`);
+    input.value = (input.value ? input.value + ' ' : '') + transcript;
+  };
+  rec.onerror = () => {};
+  rec.onend = () => { btn.classList.remove('recording'); activeMicRecognition = null; };
+  rec.start();
+}
+window.toggleChatMic = toggleChatMic;
 
 /* ============================== test pack (step 04) ============================== */
 function testPackLayerHtml(layer, cases){
