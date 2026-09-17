@@ -339,6 +339,50 @@
   .sev.low{background:var(--bg-raised);color:var(--text-secondary);}
   .q-kind{display:block;font-family:'IBM Plex Mono';font-size:10px;color:var(--text-muted);margin-top:4px;text-transform:uppercase;letter-spacing:.04em;}
 
+  /* review loop: versions, diffs, sign-off */
+  .rv-status{font-family:'IBM Plex Mono';font-size:9.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+    padding:2px 7px;border-radius:20px;white-space:nowrap;}
+  .rv-status.pending{background:var(--warning-soft);color:var(--warning);}
+  .rv-status.accepted,.rv-status.signed{background:var(--good-soft);color:var(--good);}
+  .rv-status.rejected{background:var(--critical-soft);color:var(--critical);}
+  .rv-ver{font-family:'IBM Plex Mono';font-size:11px;color:var(--text-muted);}
+  .rv-actions{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap;}
+  .btn.sm{padding:4px 9px;font-size:11px;}
+  .rv-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+  .rv-head h3{margin:0;}
+  .rv-grid{display:grid;grid-template-columns:minmax(0,230px) minmax(0,1fr);gap:20px;margin-top:14px;}
+  @media (max-width:760px){.rv-grid{grid-template-columns:1fr;}}
+  .rv-hist{display:flex;flex-direction:column;gap:6px;}
+  .rv-hist button{text-align:left;background:var(--bg-panel-2);border:1px solid var(--border-soft);border-radius:9px;
+    padding:8px 10px;cursor:pointer;font:inherit;color:var(--text-secondary);display:flex;flex-direction:column;gap:3px;}
+  .rv-hist button:hover{border-color:var(--border);}
+  .rv-hist button.on{border-color:var(--accent-line);background:var(--accent-soft);}
+  .rv-hist button:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
+  .rv-hist .h1{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--text-primary);font-weight:600;}
+  .rv-hist .h2{font-size:10.5px;color:var(--text-muted);line-height:1.45;overflow-wrap:anywhere;}
+  .rv-hist-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
+  .rv-hist-row button{background:var(--bg-panel-2);border:1px solid var(--border-soft);border-radius:20px;padding:3px 9px;
+    font-family:'IBM Plex Mono';font-size:10.5px;color:var(--text-secondary);cursor:pointer;display:inline-flex;gap:5px;align-items:center;}
+  .rv-hist-row button.on{border-color:var(--accent-line);background:var(--accent-soft);color:var(--accent-ink);}
+  .rv-sec{margin-bottom:16px;}
+  .rv-sec h4{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin:0 0 6px;font-weight:600;}
+  .rv-change{display:flex;gap:10px;align-items:baseline;font-size:12.5px;padding:3px 0;color:var(--text-secondary);}
+  .rv-change .tag{font-family:'IBM Plex Mono';font-size:10px;min-width:74px;flex-shrink:0;color:var(--text-muted);}
+  .rv-change .tag.add{color:var(--good);}
+  .rv-change .tag.del{color:var(--critical);}
+  .rv-change .tag.mod{color:var(--warning);}
+  .rv-change code{font-family:'IBM Plex Mono';font-size:11.5px;color:var(--text-primary);}
+  .rv-preview{overflow-x:auto;border:1px solid var(--border-soft);border-radius:9px;background:var(--bg-panel);}
+  .rv-preview table{border-collapse:collapse;font-family:'IBM Plex Mono';font-size:11px;min-width:100%;}
+  .rv-preview th,.rv-preview td{padding:5px 9px;border-bottom:1px solid var(--border-soft);white-space:nowrap;text-align:left;}
+  .rv-preview tr:last-child td{border-bottom:none;}
+  .rv-preview th{background:var(--bg-panel-2);color:var(--text-muted);font-weight:600;position:sticky;top:0;}
+  .rv-preview td.null{color:var(--text-muted);font-style:italic;}
+  .rv-decide{display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border-soft);padding-top:12px;margin-top:4px;}
+  .rv-decide input{flex:1;min-width:200px;background:var(--bg-panel-2);border:1px solid var(--border);border-radius:8px;
+    padding:7px 10px;font:inherit;font-size:12px;color:var(--text-primary);}
+  .rv-note{font-size:12px;color:var(--text-muted);line-height:1.5;}
+  .rv-signed{font-size:12px;color:var(--text-secondary);}
   .est-table-wrap{overflow-x:auto;}
   .est-table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px;}
   .est-table th{text-align:left;font-family:'IBM Plex Mono';font-size:10px;letter-spacing:.06em;text-transform:uppercase;
@@ -900,8 +944,21 @@ function renderScreen(){
       <div class="stats">
         <div class="stat"><b>${fmtNum(src.length)}</b><span>under contract</span></div>
         <div class="stat"><b>${fmtNum(disc.length)}</b><span>profiled</span></div>
-        <div class="stat muted"><b>—</b><span>confirmed (G0)</span></div>
+        <div class="stat"><b>${fmtNum(disc.filter(d => d.review_status === 'accepted').length)}</b><span>accepted</span></div>
+        <div class="stat ${disc.some(d => d.review_status === 'pending') ? '' : 'muted'}"><b>${fmtNum(disc.filter(d => d.review_status === 'pending').length)}</b><span>awaiting review</span></div>
       </div>
+    </div>
+    <div class="panel" id="uploadPanel">
+      <div class="panel-head"><h3>Upload a file</h3>
+        <span class="note">CSV, TSV, TXT or MD · a new file for an existing source becomes its next version, compared with the last</span></div>
+      <div class="conn-form">
+        <label>Source id<input id="upSourceId" list="upSourceIds" placeholder="e.g. claims_extract" autocomplete="off"></label>
+        <datalist id="upSourceIds">${disc.map(d => `<option value="${esc(d.source_id)}"></option>`).join('')}</datalist>
+        <label>File<input id="upFile" type="file" accept=".csv,.tsv,.txt,.md"></label>
+        <label>What changed? (optional)<input id="upNote" placeholder="e.g. corrected March extract"></label>
+      </div>
+      <div class="conn-actions"><button class="btn primary" id="upBtn" onclick="uploadSourceFile()">Upload and profile</button></div>
+      <div id="upResult"></div>
     </div>
     <div class="panel">
       <div class="panel-head"><h3>Connect to a source</h3>
@@ -925,6 +982,7 @@ function renderScreen(){
       </div>
       <div id="connResult"></div>
     </div>
+    <div class="panel" id="reviewPanel" hidden></div>
     <div class="panel">
       <div class="panel-head"><h3>Profiled sources</h3><span class="note">Persisted to contracts/discovery/${esc(currentDomain)}/</span></div>
       <div id="profileList">${disc.length ? '' : '<div class="empty-note">Nothing profiled yet for this domain.</div>'}</div>
@@ -988,6 +1046,7 @@ active portfolio | has an open position as of the reporting date | investments t
         <button class="btn ghost" id="deleteIntentBtn" style="display:none;" onclick="deleteIntentUI()">Delete this intent</button>
       </div>
       <div id="intentResult"></div>
+      <div id="intentChanges"></div>
     </div>
     <div class="panel">
       <div class="panel-head"><h3>Gap analysis</h3><span class="note">Recomputed fresh every run — never trusted from a stale file</span></div>
@@ -1183,7 +1242,7 @@ async function testConnection(){
   el.innerHTML = `<div class="conn-result">Testing…</div>`;
   try {
     const r = await api('/api/discovery/test', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({connection: buildConnection()})});
+      body: JSON.stringify({connection: buildConnection(), domain: currentDomain})});
     const j = await r.json();
     el.innerHTML = `<div class="conn-result ${j.ok ? 'ok' : 'bad'}">${j.ok ? '✓' : '✕'} ${esc(j.detail)}</div>`;
   } catch (e) {
@@ -1203,9 +1262,10 @@ async function profileConnection(){
                              sample_limit: parseInt(document.getElementById('connSampleLimit').value, 10) || 500})});
     const j = await r.json();
     if (!r.ok) { el.innerHTML = `<div class="conn-result bad">✕ ${esc(j.detail || 'profiling failed')}</div>`; return; }
-    el.innerHTML = `<div class="conn-result ok">✓ Profiled ${esc(sourceId)} — ${j.columns.length} columns, ` +
-                    `${fmtNum(j.sampled_rows)}/${fmtNum(j.total_rows)} rows sampled</div>`;
+    el.innerHTML = `<div class="conn-result ok">✓ Profiled ${esc(sourceId)} as v${j.version} — ${j.columns.length} columns, ` +
+                    `${fmtNum(j.sampled_rows)}/${fmtNum(j.total_rows)} rows sampled. Review it below.</div>`;
     await loadProfiles();
+    await openReview(sourceId, j.version);
     await refreshJourneyDataQuietly();   // updates rail badges without rebuilding the screen --
                                           // a full reloadJourney() here would wipe this success
                                           // message and the form the user just filled in
@@ -1421,7 +1481,216 @@ async function startEstateScan(){
 }
 window.startEstateScan = startEstateScan;
 
-function profileCard(p){
+/* ============================== source review loop (step 01) ============================== */
+function statusChip(st, pendingLabel){
+  if (!st) return '';
+  return `<span class="rv-status ${esc(st)}">${esc(st === 'pending' ? (pendingLabel || 'awaiting review') : st)}</span>`;
+}
+
+function diffLine(tag, cls, html){
+  return `<div class="rv-change"><span class="tag ${cls}">${tag}</span><span>${html}</span></div>`;
+}
+
+function sourceDiffHtml(d, comparedWith){
+  if (!d || d.first_version) return `<div class="rv-note">First version of this source — nothing on record to compare it with.</div>`;
+  if (d.unchanged) return `<div class="rv-note">Same columns, types, keys and row count as v${comparedWith}.</div>`;
+  const out = [];
+  if (d.rows.before !== d.rows.after) out.push(diffLine('rows', 'mod', `${fmtNum(d.rows.before)} → ${fmtNum(d.rows.after)}`));
+  d.columns_added.forEach(c => out.push(diffLine('added', 'add', `<code>${esc(c)}</code>`)));
+  d.columns_removed.forEach(c => out.push(diffLine('removed', 'del', `<code>${esc(c)}</code>`)));
+  d.type_changes.forEach(t => out.push(diffLine('type', 'mod', `<code>${esc(t.column)}</code> ${esc(t.before)} → ${esc(t.after)}`)));
+  d.null_shifts.forEach(t => out.push(diffLine('empty values', 'mod', `<code>${esc(t.column)}</code> ${t.before}% → ${t.after}%`)));
+  d.keys_gained.forEach(c => out.push(diffLine('unique', 'add', `<code>${esc(c)}</code> is now unique in the sample`)));
+  d.keys_lost.forEach(c => out.push(diffLine('not unique', 'del', `<code>${esc(c)}</code> is no longer unique in the sample`)));
+  (d.fields_added || []).forEach(c => out.push(diffLine('field', 'add', `<code>${esc(c)}</code> now extracted`)));
+  (d.fields_removed || []).forEach(c => out.push(diffLine('field', 'del', `<code>${esc(c)}</code> no longer found`)));
+  if (d.connection_changed) out.push(diffLine('location', 'mod', 'read from a different file or connection'));
+  return out.join('');
+}
+
+function sourceImpactHtml(im){
+  if (!im) return '';
+  if (!im.intent_captured) return `<div class="rv-note">No intent captured yet, so there's nothing for this version to satisfy or break.</div>`;
+  if (!im.newly_resolved.length && !im.newly_open.length) return `<div class="rv-note">Doesn't change whether any intent's data points are found.</div>`;
+  return im.newly_resolved.map(g => diffLine('now found', 'add', `<code>${esc(g.data_point)}</code> — ${esc(g.intent)} · ${esc(g.report)}`)).join('')
+       + im.newly_open.map(g => diffLine('now missing', 'del', `<code>${esc(g.data_point)}</code> — ${esc(g.intent)} · ${esc(g.report)}`)).join('');
+}
+
+function previewTableHtml(p){
+  const pv = p.preview;
+  if (!pv || !pv.rows) return `<div class="rv-note">No row preview — this version was profiled before previews were kept. Re-profile it to capture one.</div>`;
+  if (!pv.rows.length) return `<div class="rv-note">The source had no rows.</div>`;
+  const head = pv.header.map(h => `<th scope="col">${esc(h)}</th>`).join('');
+  const body = pv.rows.map(r => `<tr>${pv.header.map((_, i) => {
+    const v = r[i];
+    return (v === null || v === undefined || v === '') ? '<td class="null">empty</td>' : `<td>${esc(v)}</td>`;
+  }).join('')}</tr>`).join('');
+  return `<div class="rv-preview"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+    <div class="intent-help" style="margin-top:6px;">First ${pv.rows.length} of ${fmtNum(p.sampled_rows)} sampled rows, exactly as read</div>`;
+}
+
+function renderReview(v){
+  const panel = document.getElementById('reviewPanel');
+  if (!panel) return;
+  const hist = v.history || [];
+  const m = v.meta || {};
+  const liveV = [...hist].reverse().find(h => (h.review || {}).status !== 'rejected');
+  const liveVersion = liveV ? liveV.version : null;
+  const sid = v.source_id;
+  const histHtml = [...hist].reverse().map(h => {
+    const rv = h.review || {};
+    return `<button class="${h.version === m.version ? 'on' : ''}" onclick="openReview('${esc(sid)}', ${h.version})">
+      <span class="h1">v${h.version}${h.version === liveVersion ? ' <span class="rv-ver">live</span>' : ''} ${statusChip(rv.status)}</span>
+      <span class="h2">${esc(h.reason || '')} · ${esc(h.created_by || '')} · ${timeAgo(h.created_at)}${h.file ? `<br>${esc(h.file.name)}${h.file.note ? ' — “' + esc(h.file.note) + '”' : ''}` : ''}</span>
+    </button>`;
+  }).join('') || `<div class="rv-note">No version history — profiled before versioning. Re-profile or upload to start one.</div>`;
+
+  const rv = m.review || {};
+  let decide = '';
+  if (m.version && rv.status === 'pending') {
+    decide = `<div class="rv-decide">
+      <input id="rvComment" placeholder="Comment — required to reject" aria-label="Review comment">
+      <button class="btn primary" onclick="decideReview('${esc(sid)}', ${m.version}, 'accept')">Accept v${m.version}</button>
+      <button class="btn reject" onclick="decideReview('${esc(sid)}', ${m.version}, 'reject')">Reject</button>
+    </div>`;
+  } else if (m.version && rv.status) {
+    decide = `<div class="rv-decide"><span class="rv-signed">${esc(rv.status === 'accepted' ? 'Accepted' : 'Rejected')} by ${esc(rv.by || '')} · ${timeAgo(rv.at)}${rv.comment ? ' — “' + esc(rv.comment) + '”' : ''}</span>
+      ${rv.status === 'accepted' ? `<input id="rvComment" placeholder="Why withdraw it?" aria-label="Withdrawal reason">
+      <button class="btn reject" onclick="decideReview('${esc(sid)}', ${m.version}, 'reject')">Withdraw</button>` : ''}</div>`;
+  }
+
+  const p = v.profile || {};
+  const canReprofile = p.connection && !(p.connection.path || '').startsWith('landing/uploads/');
+  panel.hidden = false;
+  panel.innerHTML = `
+    <div class="rv-head">
+      <h3>Review ${esc(sid)}</h3>
+      ${m.version ? `<span class="rv-ver">v${m.version}${v.compared_with ? ' · compared with v' + v.compared_with : ''}</span>` : ''}
+      ${statusChip(rv.status)}
+      <span class="rv-actions">
+        <button class="btn ghost sm" onclick="reuploadSource('${esc(sid)}')">Upload a new file</button>
+        ${canReprofile ? `<button class="btn ghost sm" onclick="reprofileSource('${esc(sid)}')">Re-profile</button>` : ''}
+        <button class="btn ghost sm" onclick="closeReview()">Close</button>
+      </span>
+    </div>
+    <div class="rv-grid">
+      <div><div class="rv-sec"><h4>Versions</h4><div class="rv-hist">${histHtml}</div></div></div>
+      <div>
+        <div class="rv-sec"><h4>What changed</h4>${sourceDiffHtml(v.diff, v.compared_with)}</div>
+        <div class="rv-sec"><h4>Effect on intent</h4>${sourceImpactHtml(v.impact)}</div>
+        <div class="rv-sec"><h4>Preview</h4>${previewTableHtml(p)}</div>
+        <div class="rv-sec"><h4>Profile</h4>${profileCard(p, {bare: true})}</div>
+        ${decide}
+        <div id="rvResult"></div>
+      </div>
+    </div>`;
+}
+
+async function openReview(sourceId, version){
+  const panel = document.getElementById('reviewPanel');
+  if (!panel) return;
+  panel.hidden = false;
+  if (!panel.innerHTML.trim()) panel.innerHTML = `<div class="empty-note">Loading ${esc(sourceId)}…</div>`;
+  try {
+    const q = `domain=${encodeURIComponent(currentDomain)}&source_id=${encodeURIComponent(sourceId)}` + (version ? `&version=${version}` : '');
+    const r = await api(`/api/discovery/version?${q}`);
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    renderReview(j);
+    panel.scrollIntoView({behavior: 'smooth', block: 'start'});
+  } catch (e) {
+    panel.innerHTML = `<div class="conn-result bad">Could not open ${esc(sourceId)}: ${esc(e.message)}</div>`;
+  }
+}
+window.openReview = openReview;
+
+function closeReview(){
+  const panel = document.getElementById('reviewPanel');
+  if (panel) { panel.hidden = true; panel.innerHTML = ''; }
+}
+window.closeReview = closeReview;
+
+async function decideReview(sourceId, version, decision){
+  const out = document.getElementById('rvResult');
+  const comment = (document.getElementById('rvComment') || {}).value || '';
+  const fd = new FormData();
+  fd.append('domain', currentDomain); fd.append('source_id', sourceId);
+  fd.append('version', version); fd.append('decision', decision); fd.append('comment', comment);
+  try {
+    const r = await api('/api/discovery/review', {method: 'POST', body: fd});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    await loadProfiles();
+    await refreshJourneyDataQuietly();
+    await openReview(sourceId, version);
+    const after = document.getElementById('rvResult');
+    if (after) after.innerHTML = `<div class="conn-result ok">✓ v${version} ${esc(j.status)}${j.live_version ? ` — v${j.live_version} is live` : ' — no live version remains, so gap analysis no longer counts this source'}</div>`;
+  } catch (e) {
+    if (out) out.innerHTML = `<div class="conn-result bad">✕ ${esc(e.message)}</div>`;
+  }
+}
+window.decideReview = decideReview;
+
+async function reprofileSource(sourceId){
+  const out = document.getElementById('rvResult');
+  if (out) out.innerHTML = `<div class="conn-result">Re-reading ${esc(sourceId)}…</div>`;
+  const fd = new FormData();
+  fd.append('domain', currentDomain); fd.append('source_id', sourceId);
+  try {
+    const r = await api('/api/discovery/reprofile', {method: 'POST', body: fd});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    renderReview(j);
+    await loadProfiles();
+    await refreshJourneyDataQuietly();
+  } catch (e) {
+    const o = document.getElementById('rvResult');
+    if (o) o.innerHTML = `<div class="conn-result bad">✕ ${esc(e.message)}</div>`;
+  }
+}
+window.reprofileSource = reprofileSource;
+
+function reuploadSource(sourceId){
+  const input = document.getElementById('upSourceId');
+  if (!input) return;
+  input.value = sourceId;
+  document.getElementById('uploadPanel').scrollIntoView({behavior: 'smooth', block: 'start'});
+  document.getElementById('upFile').focus();
+}
+window.reuploadSource = reuploadSource;
+
+async function uploadSourceFile(){
+  const out = document.getElementById('upResult');
+  const sourceId = document.getElementById('upSourceId').value.trim();
+  const file = document.getElementById('upFile').files[0];
+  if (!sourceId) { out.innerHTML = `<div class="conn-result bad">Give the source an id first — reuse an existing id to add a new version.</div>`; return; }
+  if (!file) { out.innerHTML = `<div class="conn-result bad">Choose a file to upload.</div>`; return; }
+  const fd = new FormData();
+  fd.append('domain', currentDomain); fd.append('source_id', sourceId);
+  fd.append('note', document.getElementById('upNote').value); fd.append('file', file);
+  const btn = document.getElementById('upBtn');
+  btn.disabled = true; btn.textContent = 'Uploading…';
+  out.innerHTML = `<div class="conn-result">Profiling ${esc(file.name)}…</div>`;
+  try {
+    const r = await api('/api/discovery/upload', {method: 'POST', body: fd});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    out.innerHTML = `<div class="conn-result ok">✓ ${esc(sourceId)} v${j.meta.version} uploaded — review it below.</div>`;
+    document.getElementById('upFile').value = '';
+    document.getElementById('upNote').value = '';
+    await loadProfiles();
+    await refreshJourneyDataQuietly();
+    renderReview(j);
+    document.getElementById('reviewPanel').scrollIntoView({behavior: 'smooth', block: 'start'});
+  } catch (e) {
+    out.innerHTML = `<div class="conn-result bad">✕ ${esc(e.message)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Upload and profile';
+  }
+}
+window.uploadSourceFile = uploadSourceFile;
+
+function profileCard(p, opts){
   const rows = (p.columns || []).map(c => `<tr>
     <td class="cname">${esc(c.name)}${c.is_candidate_key ? '<span class="key">key</span>' : ''}</td>
     <td class="ctype">${esc(c.inferred_type)}</td>
@@ -1448,11 +1717,18 @@ function profileCard(p){
     </div>`;
   }).join('');
 
+  const rvs = p.review || {};
+  const bare = opts && opts.bare;
   return `<div class="profile-card">
     <div class="profile-top">
-      <span class="pname">${esc(p.source_id)}</span>
-      <span class="ptype">${esc(p.connection.type)}</span>
+      ${bare ? '' : `<span class="pname">${esc(p.source_id)}</span>`}
+      <span class="ptype">${esc((p.connection || {}).type || '')}</span>
+      ${!bare && rvs.version ? `<span class="rv-ver">v${rvs.version}</span> ${statusChip(rvs.review_status)}` : ''}
       <span class="prows">${fmtNum(p.sampled_rows)}/${fmtNum(p.total_rows)} rows · profiled ${timeAgo(p.profiled_at)}</span>
+      ${bare ? '' : `<span class="rv-actions">
+        ${rvs.pending && rvs.review_status !== 'pending' ? `<span class="rv-ver">${rvs.pending} older pending</span>` : ''}
+        <button class="btn ${rvs.review_status === 'pending' ? 'primary' : 'ghost'} sm" onclick="openReview('${esc(p.source_id)}')">${rvs.review_status === 'pending' ? 'Review' : 'Open'}</button>
+      </span>`}
     </div>
     ${p.records_path ? `<div class="intent-help" style="margin-top:6px;">records read from <span class="mono">${esc(p.records_path)}</span> in the API response</div>` : ''}
     <table class="coltable"><thead><tr><th>Column</th><th>Type</th><th>Null%</th><th>Distinct</th><th>Samples</th></tr></thead>
@@ -1688,6 +1964,7 @@ function newIntentUI(){
     .forEach(id => document.getElementById(id).value = '');
   document.getElementById('deleteIntentBtn').style.display = 'none';
   document.getElementById('intentResult').innerHTML = '';
+  document.getElementById('intentChanges').innerHTML = '';
   loadIntentsListUI();
 }
 window.newIntentUI = newIntentUI;
@@ -1716,6 +1993,7 @@ async function loadIntentForm(intentId){
     document.getElementById('intentDefinitions').value = it ? formatPipeLines(it.definitions, ['term','definition','source']) : '';
     document.getElementById('deleteIntentBtn').style.display = it ? 'inline-flex' : 'none';
     await loadIntentsListUI();
+    if (it) await loadIntentChanges(it.intent_id); else document.getElementById('intentChanges').innerHTML = '';
   } catch (e) {
     document.getElementById('intentResult').innerHTML = `<div class="conn-result bad">Could not load intent: ${esc(e.message)}</div>`;
   }
@@ -1748,8 +2026,8 @@ async function saveIntent(){
                             captured_by: 'human', intent_id: idToSave})});
     const j = await r.json();
     if (!r.ok) { el.innerHTML = `<div class="conn-result bad">✕ ${esc(j.detail || 'save failed')}</div>`; return; }
-    el.innerHTML = `<div class="conn-result ok">✓ Intent saved for ${esc(currentDomain)}</div>`;
-    await loadIntentForm(idToSave || undefined);
+    el.innerHTML = `<div class="conn-result ok">✓ Intent saved for ${esc(currentDomain)} — see what the change did below.</div>`;
+    await loadIntentForm(j.intent_id || idToSave || undefined);
     await refreshJourneyDataQuietly();
     await runGapAnalysisUI();
   } catch (e) {
@@ -1773,6 +2051,109 @@ async function deleteIntentUI(){
   }
 }
 window.deleteIntentUI = deleteIntentUI;
+
+/* ============================== intent change & re-sign (step 02) ============================== */
+function intentDiffHtml(d, comparedWith){
+  if (!d || d.first_version) return `<div class="rv-note">First version of this intent — nothing earlier to compare with.</div>`;
+  if (d.unchanged) return `<div class="rv-note">Saved again with no changes from v${comparedWith}.</div>`;
+  const out = [];
+  const label = {name: 'name', business_outcome: 'business outcome', definition_of_done: 'definition of done'};
+  d.fields_changed.forEach(f => out.push(diffLine('edited', 'mod', esc(label[f] || f))));
+  if (d.sla_changed) out.push(diffLine('edited', 'mod', 'SLA'));
+  d.reports_added.forEach(r => out.push(diffLine('report', 'add', `<b>${esc(r.report)}</b>${r.data_points.length ? ' — needs ' + r.data_points.map(x => `<code>${esc(x)}</code>`).join(', ') : ''}`)));
+  d.reports_removed.forEach(r => out.push(diffLine('report', 'del', `<b>${esc(r.report)}</b> removed`)));
+  d.reports_changed.forEach(r => {
+    r.data_points_added.forEach(x => out.push(diffLine('needs', 'add', `<code>${esc(x)}</code> — ${esc(r.report)}`)));
+    r.data_points_removed.forEach(x => out.push(diffLine('drops', 'del', `<code>${esc(x)}</code> — ${esc(r.report)}`)));
+  });
+  d.definitions_added.forEach(t => out.push(diffLine('term', 'add', `“${esc(t)}” defined`)));
+  d.definitions_removed.forEach(t => out.push(diffLine('term', 'del', `“${esc(t)}” removed`)));
+  d.definitions_reworded.forEach(t => out.push(diffLine('term', 'mod', `“${esc(t)}” reworded — check it still agrees with other intents`)));
+  return out.join('');
+}
+
+function intentGapsHtml(g, estate){
+  const leads = (estate && estate.matches) || {};
+  const lead = dp => {
+    const hits = leads[String(dp).trim().toLowerCase()] || [];
+    if (hits.length) return ` — in the estate: ${hits.slice(0, 3).map(h => `<code>${esc(h.table)}</code>${h.null_pct != null ? ' (' + h.null_pct + '% empty)' : ''}`).join(', ')}${hits.length > 3 ? ` +${hits.length - 3} more` : ''}`;
+    // searched and absent is a finding too: it has to come from a source nobody has connected yet
+    return estate && estate.scan_id ? ' — not in the estate scan either' : '';
+  };
+  const out = [];
+  g.newly_open.forEach(x => out.push(diffLine('now open', 'del', `<code>${esc(x.data_point)}</code> — ${esc(x.report)}${lead(x.data_point)}`)));
+  g.newly_resolved.forEach(x => out.push(diffLine('now found', 'add', `<code>${esc(x.data_point)}</code> — ${esc(x.found_in.join(', '))}`)));
+  g.no_longer_needed.forEach(x => out.push(diffLine('not needed', 'mod', `<code>${esc(x.data_point)}</code> — ${esc(x.report)}`)));
+  g.still_open.forEach(x => out.push(diffLine('still open', 'del', `<code>${esc(x.data_point)}</code> — ${esc(x.report)}${lead(x.data_point)}`)));
+  const count = g.open_before === null || g.open_before === undefined
+    ? `${g.open_now} open` : `${g.open_before} → ${g.open_now} open`;
+  const found = Object.keys(leads).length;
+  const note = estate && estate.note ? `<div class="intent-help" style="margin-top:6px;">${esc(estate.note)}</div>`
+    : (found ? `<div class="intent-help" style="margin-top:6px;">Estate matches are exact column names from the latest estate scan — profile that table to close the gap.</div>` : '');
+  return `<div class="rv-note" style="margin-bottom:4px;">${count} for this intent</div>${out.join('') || '<div class="rv-note">No data point changed status.</div>'}${note}`;
+}
+
+async function loadIntentChanges(intentId, version){
+  const host = document.getElementById('intentChanges');
+  if (!host || !intentId || intentId === '__new__') return;
+  try {
+    const q = `domain=${encodeURIComponent(currentDomain)}&intent_id=${encodeURIComponent(intentId)}&target=${encodeURIComponent(currentTarget)}` + (version ? `&version=${version}` : '');
+    const r = await api(`/api/intent/changes?${q}`);
+    const v = await r.json();
+    if (!r.ok) throw new Error(v.detail || r.statusText);
+    const m = v.meta;
+    if (!m) { host.innerHTML = `<div class="rv-note" style="margin-top:14px;">Captured before versioning — the next save starts its history.</div>`; return; }
+    const latest = v.history[v.history.length - 1].version;
+    const rv = m.review || {};
+    const pills = [...v.history].reverse().map(h => `<button class="${h.version === m.version ? 'on' : ''}" onclick="loadIntentChanges('${esc(intentId)}', ${h.version})">v${h.version} ${statusChip((h.review || {}).status, 'unsigned')}</button>`).join('');
+    const stale = (v.stale || []).map(x => diffLine('re-check', 'mod', `<b>${esc(x.artifact)}</b> — ${esc(x.why)}`)).join('');
+    let sign = '';
+    if (m.version === latest && rv.status !== 'signed') {
+      sign = `<div class="rv-decide">
+        <input id="intentSignComment" placeholder="Comment (optional)" aria-label="Sign-off comment">
+        <button class="btn primary" onclick="signIntentVersion('${esc(intentId)}', ${m.version})">Sign off v${m.version}</button>
+      </div>`;
+    } else if (rv.status === 'signed') {
+      sign = `<div class="rv-decide"><span class="rv-signed">Signed off by ${esc(rv.by)} · ${timeAgo(rv.at)}${rv.comment ? ' — “' + esc(rv.comment) + '”' : ''}</span></div>`;
+    } else {
+      sign = `<div class="rv-decide"><span class="rv-note">An earlier version — only the current one (v${latest}) can be signed.</span></div>`;
+    }
+    host.innerHTML = `<div style="border-top:1px solid var(--border-soft);margin-top:16px;padding-top:14px;">
+      <div class="rv-head">
+        <h3 style="font-size:13px;">Version history</h3>
+        <span class="rv-ver">v${m.version}${v.compared_with ? ' · compared with v' + v.compared_with : ''} · ${esc(m.reason)} by ${esc(m.created_by)} · ${timeAgo(m.created_at)}</span>
+        ${statusChip(rv.status, 'awaiting sign-off')}
+      </div>
+      <div class="rv-hist-row">${pills}</div>
+      <div class="rv-grid" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr);">
+        <div class="rv-sec"><h4>What changed</h4>${intentDiffHtml(v.diff, v.compared_with)}</div>
+        <div class="rv-sec"><h4>What it did to gaps</h4>${intentGapsHtml(v.gaps, v.estate)}</div>
+      </div>
+      ${stale ? `<div class="rv-sec"><h4>Now out of date</h4>${stale}</div>` : ''}
+      ${sign}
+      <div id="intentSignResult"></div>
+    </div>`;
+  } catch (e) {
+    host.innerHTML = `<div class="conn-result bad">Could not load version history: ${esc(e.message)}</div>`;
+  }
+}
+window.loadIntentChanges = loadIntentChanges;
+
+async function signIntentVersion(intentId, version){
+  const fd = new FormData();
+  fd.append('domain', currentDomain); fd.append('intent_id', intentId); fd.append('version', version);
+  fd.append('comment', (document.getElementById('intentSignComment') || {}).value || '');
+  try {
+    const r = await api('/api/intent/sign', {method: 'POST', body: fd});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    await loadIntentChanges(intentId, version);
+  } catch (e) {
+    const o = document.getElementById('intentSignResult');
+    if (o) o.innerHTML = `<div class="conn-result bad">✕ ${esc(e.message)}</div>`;
+  }
+}
+window.signIntentVersion = signIntentVersion;
 
 function gapResultsHtml(report){
   if (!report.intent_captured) return `<div class="empty-note">No intent captured yet for ${esc(currentDomain)} — save one above first.</div>`;

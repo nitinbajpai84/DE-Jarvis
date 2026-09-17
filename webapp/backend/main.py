@@ -197,6 +197,7 @@ def api_alerts(request: Request, target: str = "duckdb", domain: str = pipeline.
 
 class ConnectionTestRequest(BaseModel):
     connection: dict
+    domain: str | None = None
 
 
 class ProfileRequest(BaseModel):
@@ -206,22 +207,96 @@ class ProfileRequest(BaseModel):
     sample_limit: int = 500
 
 
+def _username(request: Request) -> str:
+    user = getattr(request.state, "user", None)
+    return user["username"] if user else "local"
+
+
+def _check_source_path(request: Request, connection: dict, domain: str) -> None:
+    ok, why = discovery.allowed_path(connection, domain, _user_domains(request) == "*")
+    if not ok:
+        raise HTTPException(status_code=403, detail=why)
+
+
 @app.post("/api/discovery/test")
-def api_discovery_test(body: ConnectionTestRequest):
+def api_discovery_test(request: Request, body: ConnectionTestRequest):
     """Cheap reachability check for a candidate connection -- no sampling. Same connection
-    shape a compiled source.yaml's connection: block uses."""
+    shape a compiled source.yaml's connection: block uses. A file path is checked against the
+    caller's own files first: even "3 files match" tells a company what another tenant has."""
+    if _user_domains(request) != "*":
+        if not body.domain:
+            raise HTTPException(status_code=400, detail="domain is required")
+        _check_domain(request, body.domain)
+    _check_source_path(request, body.connection, body.domain or "")
     return discovery.test_connection(body.connection)
 
 
 @app.post("/api/discovery/profile")
 def api_discovery_profile(request: Request, body: ProfileRequest):
     """Connects for real and profiles a candidate source: per-column type/null/distinct/
-    candidate-key, persisted to contracts/discovery/<domain>/<source_id>.profile.json."""
+    candidate-key, persisted to contracts/discovery/<domain>/<source_id>.profile.json and
+    recorded as a new version awaiting review."""
     _check_domain(request, body.domain)
+    _check_source_path(request, body.connection, body.domain)
     try:
-        return discovery.profile_source(body.connection, body.source_id, body.domain, body.sample_limit)
+        return discovery.profile_source(body.connection, body.source_id, body.domain, body.sample_limit,
+                                        created_by=_username(request))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 -- surface the real connector error, don't swallow it
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/discovery/upload")
+async def api_discovery_upload(request: Request, domain: str = Form(...), source_id: str = Form(...),
+                               note: str = Form(""), file: UploadFile = File(...)):
+    """Upload a file as a source (or a corrected file for an existing one). Saved under the
+    domain's own upload area, profiled, and returned as a version to review against the last."""
+    _check_domain(request, domain)
+    content = await file.read()
+    try:
+        return discovery.upload_source(domain, source_id, file.filename or "upload", content,
+                                       _username(request), note)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 -- e.g. a CSV the sampler can't parse: say so
+        raise HTTPException(status_code=422, detail=f"couldn't profile that file: {exc}") from exc
+
+
+@app.post("/api/discovery/reprofile")
+def api_discovery_reprofile(request: Request, domain: str = Form(...), source_id: str = Form(...)):
+    _check_domain(request, domain)
+    try:
+        return discovery.reprofile(domain, source_id, _username(request))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/api/discovery/version")
+def api_discovery_version(request: Request, domain: str, source_id: str, version: int | None = None):
+    """A source version in full -- preview rows, profile, history -- with its diff and intent
+    impact against what was on record before it."""
+    _check_domain(request, domain)
+    try:
+        return discovery.version_view(domain, source_id, version)
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/discovery/review")
+def api_discovery_review(request: Request, domain: str = Form(...), source_id: str = Form(...),
+                         version: int = Form(...), decision: str = Form(...), comment: str = Form("")):
+    _check_domain(request, domain)
+    try:
+        return discovery.decide(domain, source_id, version, decision, _username(request), comment)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/discovery")
@@ -296,7 +371,36 @@ def api_intents_list(request: Request, domain: str = pipeline.DEFAULT_DOMAIN):
 @app.post("/api/intent")
 def api_intent_post(request: Request, body: IntentRequest):
     _check_domain(request, body.domain)
-    return intent.capture_intent(body.domain, body.client, body.intent, body.captured_by, body.intent_id)
+    # who saved it comes from the login, not from what the page claims
+    try:
+        return intent.capture_intent(body.domain, body.client, body.intent, _username(request), body.intent_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/intent/changes")
+def api_intent_changes(request: Request, domain: str, intent_id: str, version: int | None = None,
+                       target: str = "duckdb"):
+    """What an intent version changed against the one before it, what that did to gaps, where
+    newly needed data points already exist in the estate, and what is now stale."""
+    _check_domain(request, domain)
+    try:
+        return discovery.intent_change_view(domain, intent_id, version, target,
+                                            include_unclassified=_sees_unclassified(request))
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/intent/sign")
+def api_intent_sign(request: Request, domain: str = Form(...), intent_id: str = Form(...),
+                    version: int = Form(...), comment: str = Form("")):
+    _check_domain(request, domain)
+    try:
+        return discovery.sign_intent(domain, intent_id, version, _username(request), comment)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.delete("/api/intent/{domain}/{intent_id}")

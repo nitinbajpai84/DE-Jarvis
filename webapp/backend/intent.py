@@ -26,7 +26,7 @@ def list_intents(domain: str) -> list[dict[str, Any]]:
 def capture_intent(domain: str, client: str, intent_data: dict, captured_by: str = "human",
                     intent_id: str | None = None) -> dict[str, Any]:
     path = intent_mod.capture_intent(domain, client, intent_data, captured_by, intent_id)
-    return {"ok": True, "path": str(path)}
+    return {"ok": True, "path": str(path), "intent_id": path.stem}
 
 
 def delete_intent(domain: str, intent_id: str) -> dict[str, Any]:

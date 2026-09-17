@@ -94,13 +94,19 @@ def load_intent(domain: str, intent_id: str | None = None) -> dict[str, Any] | N
 
 def capture_intent(domain: str, client: str, intent: dict[str, Any], captured_by: str,
                     intent_id: str | None = None) -> pathlib.Path:
-    """Overwrites the intent record at this intent_id. Deliberately a replace, not a merge -- a
+    """Replaces the live intent record at this intent_id. Deliberately a replace, not a merge -- a
     human revising an intent should see exactly what they submitted, not a silent merge with
     stale fields from an earlier draft. intent_id defaults to a slug of intent['name'] if given,
     else the fixed id "primary" (a caller that's never heard of multi-intent -- e.g. the G1 gate
-    tool's existing signature -- always lands on the same single record it always has)."""
+    tool's existing signature -- always lands on the same single record it always has).
+
+    The replace is no longer destructive: every save is also recorded as a version awaiting
+    re-sign (emitters/versions.py), and emitters/intent_change.py reports what the change did."""
+    from emitters import versions
+    versions.check_id(domain)
     name = (intent.get("name") or "").strip()
     resolved_id = intent_id or (_slugify(name) if name else "primary")
+    versions.check_id(resolved_id)
     record = {
         "intent_id": resolved_id, "name": name or resolved_id,
         "domain": domain, "client": client,
@@ -115,6 +121,20 @@ def capture_intent(domain: str, client: str, intent: dict[str, Any], captured_by
     }
     path = _intent_path(domain, resolved_id)
     path.parent.mkdir(parents=True, exist_ok=True)
+    root = _intent_dir(domain)
+    history = versions.list_versions(root, resolved_id)
+    if not history and path.exists():
+        # captured before versioning existed: keep it as v1 so this save's change is visible
+        previous = yaml.safe_load(path.read_text()) or {}
+        versions.record(root, resolved_id, previous,
+                        {"created_by": previous.get("captured_by", "unknown"),
+                         "created_at": previous.get("captured_at"), "reason": "baseline",
+                         "review": {"status": "pending"}})
+        history = [None]
+    versions.record(root, resolved_id, record, {
+        "created_by": captured_by, "reason": "captured" if not history else "revised",
+        "review": {"status": "pending"},
+    })
     path.write_text(yaml.safe_dump(record, sort_keys=False, allow_unicode=True))
     return path
 
@@ -172,6 +192,25 @@ def _find_data_point(name: str, columns: dict[str, dict[str, list[str]]]) -> lis
     return hits
 
 
+def compute_gaps(intents: list[dict[str, Any]], columns: dict[str, dict[str, list[str]]]) -> list[dict[str, Any]]:
+    """Pure: the gap rows for these intents against these known columns. Split out so a change
+    can be judged by running it on both sides (the intent before and after, or the columns with
+    and without a new source version) without touching what's on disk."""
+    gaps = []
+    for intent in intents:
+        for rep in intent.get("reports", []) or []:
+            for dp in rep.get("required_data_points", []) or []:
+                hits = _find_data_point(dp, columns)
+                gaps.append({
+                    "intent": intent.get("name", intent.get("intent_id")),
+                    "intent_id": intent.get("intent_id"),
+                    "report": rep.get("name", "(unnamed report)"), "data_point": dp,
+                    "status": "resolved" if hits else "open",
+                    "found_in": hits,
+                })
+    return gaps
+
+
 def run_gap_analysis(domain: str) -> dict[str, Any]:
     """The real check: every required_data_point in every report of every intent this domain has
     captured, looked up against every column this platform actually knows about right now.
@@ -191,17 +230,7 @@ def run_gap_analysis(domain: str) -> dict[str, Any]:
                 "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat()}
 
     columns = known_columns(domain)
-    gaps = []
-    for intent in intents:
-        for rep in intent.get("reports", []):
-            for dp in rep.get("required_data_points", []):
-                hits = _find_data_point(dp, columns)
-                gaps.append({
-                    "intent": intent.get("name", intent.get("intent_id")),
-                    "report": rep.get("name", "(unnamed report)"), "data_point": dp,
-                    "status": "resolved" if hits else "open",
-                    "found_in": hits,
-                })
+    gaps = compute_gaps(intents, columns)
 
     conflicts = []
     by_term: dict[str, list[dict[str, str]]] = {}

@@ -7,7 +7,7 @@ own `connection:` key -- rather than inventing a second format. A profile produc
 real contract later describe the same source the same way; there is no translation step, and no
 risk of the two silently drifting.
 
-This module only READS. It never lands anything to bronze, never writes to contracts/, and
+This module only READS sources. It never lands anything to bronze, never writes a contract, and
 (for the database connector) samples with LIMIT rather than pulling a whole table. The output
 is one profile per source, persisted to contracts/discovery/<domain>/<source_id>.profile.json --
 deliberately not evidence/ (nothing has been decided yet) and deliberately not contracts/sources/
@@ -33,6 +33,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 DISCOVERY_DIR = REPO_ROOT / "contracts" / "discovery"
+HARNESS_DIR = REPO_ROOT / "harness"
 
 _INT_RE = re.compile(r"^-?\d+$")
 _FLOAT_RE = re.compile(r"^-?\d+\.\d+$")
@@ -133,7 +134,7 @@ def test_connection(connection: dict) -> dict[str, Any]:
 
 def _glob_files(connection: dict) -> list[pathlib.Path]:
     pattern = connection["path"]
-    base = REPO_ROOT / "harness"
+    base = HARNESS_DIR
     rel = pathlib.PurePosixPath(pattern)
     rel = rel.relative_to("harness") if pattern.startswith("harness/") else rel
     return sorted(p for p in base.glob(rel.as_posix()) if p.is_file())
@@ -331,11 +332,23 @@ _SAMPLERS = {"file": _sample_file, "database": _sample_database,
 
 # --------------------------------------------------------------------------- public entry point
 
-def profile_source(connection: dict, source_id: str, domain: str, sample_limit: int = 500) -> dict[str, Any]:
+PREVIEW_ROWS = 20
+
+
+def profile_source(connection: dict, source_id: str, domain: str, sample_limit: int = 500,
+                   created_by: str = "agent", reason: str | None = None,
+                   file_meta: dict[str, Any] | None = None) -> dict[str, Any]:
     """Connects for real, pulls a sample, and reports a column-level profile: inferred type,
     null rate, distinct count, candidate-key flag, sample values -- the raw material a human (or
     the BA agent) curates into 03_Data_Sources / 04_Attributes rows in the intake workbook.
-    Nothing here writes to contracts/ or lands data to bronze."""
+    Nothing here writes a contract or lands data to bronze.
+
+    Every profile is recorded as a new version (emitters/versions.py) awaiting review, so
+    re-profiling or re-uploading a source never destroys what was there -- see
+    emitters/source_review.py for the diff and accept/reject side."""
+    from emitters import versions
+    versions.check_id(source_id)
+    versions.check_id(domain)
     ctype = connection.get("type")
     sampler = _SAMPLERS.get(ctype)
     if sampler is None:
@@ -352,6 +365,11 @@ def profile_source(connection: dict, source_id: str, domain: str, sample_limit: 
         "sampled_rows": len(rows), "total_rows": total_rows,
         "columns": columns, "candidate_keys": candidate_keys,
         "profiled_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        # The first rows exactly as sampled, so a reviewer sees the data itself and not only
+        # statistics about it -- a date column in the wrong format or a shifted delimiter is
+        # obvious in five rows and invisible in a null-rate.
+        "preview": {"header": header, "rows": [[None if v is None else str(v) for v in r]
+                                               for r in rows[:PREVIEW_ROWS]]},
     }
     if ctype == "api" and _LAST_API_RECORDS_PATH:
         # Which list inside the response these records came from -- visible rather than a silent
@@ -365,6 +383,24 @@ def profile_source(connection: dict, source_id: str, domain: str, sample_limit: 
             {"file_path": r[0], **_extract_document_content(pathlib.Path(r[0]).read_text(errors="replace"))}
             for r in rows
         ]
+    root = DISCOVERY_DIR / domain
+    history = versions.list_versions(root, source_id)
+    current = root / f"{source_id}.profile.json"
+    if not history and current.exists():
+        # Profiled before versioning existed: keep that profile as v1 so the change this new
+        # profile makes is still visible, rather than starting history from the overwrite.
+        versions.record(root, source_id, json.loads(current.read_text()),
+                        {"created_by": "unknown (profiled before versioning)",
+                         "created_at": json.loads(current.read_text()).get("profiled_at"),
+                         "reason": "baseline", "file": None, "review": {"status": "pending"}})
+        history = versions.list_versions(root, source_id)
+    meta = versions.record(root, source_id, report, {
+        "created_by": created_by,
+        "reason": reason or ("initial profile" if not history else "re-profile"),
+        "file": file_meta,
+        "review": {"status": "pending"},
+    })
+    report["version"] = meta["version"]
     _write_profile(domain, source_id, report)
     return report
 

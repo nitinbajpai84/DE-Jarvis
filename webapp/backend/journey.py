@@ -71,6 +71,7 @@ def _observed(step_id: str, domain: str, target: str, allowed_domains: list[str]
 
     if step_id == "sources":
         from emitters.profiler import list_profiles
+        from emitters.source_review import review_summary
         profiles = list_profiles(domain)
         return {
             "contracted_sources": _source_contracts(domain),
@@ -79,7 +80,8 @@ def _observed(step_id: str, domain: str, target: str, allowed_domains: list[str]
                 {"source_id": p["source_id"], "connection_type": p["connection"].get("type"),
                  "columns": len(p["columns"]), "candidate_keys": p["candidate_keys"],
                  "sampled_rows": p["sampled_rows"], "total_rows": p["total_rows"],
-                 "profiled_at": p["profiled_at"]}
+                 "profiled_at": p["profiled_at"],
+                 **{k: v for k, v in review_summary(domain, p["source_id"]).items() if k in ("version", "review_status")}}
                 for p in profiles
             ],
         }
