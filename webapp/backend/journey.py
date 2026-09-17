@@ -140,6 +140,11 @@ def journey(domain: str, target: str = "duckdb", allowed_domains: list[str] | st
     records = _gate_records(domain)
     steps = []
     for step in view["steps"]:
+        # The Workspace step answers "which domains exist on this platform" -- an operator's
+        # question about the deployment, not a customer's about their own data. A scoped company
+        # login opens on Discovery instead; admins still see it.
+        if step["id"] == "onboard" and allowed_domains != "*":
+            continue
         try:
             observed = _observed(step["id"], domain, target, allowed_domains)
         except Exception as exc:  # noqa: BLE001 -- one unreachable layer must not blank the whole journey
