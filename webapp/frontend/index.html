@@ -283,6 +283,91 @@
   .intent-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
   @media (max-width:640px){.intent-row{grid-template-columns:1fr;}}
   .intent-help{font-size:10.5px;color:var(--text-muted);margin-top:-2px;}
+  /* ---------------- estate scan & report (step 01) ---------------- */
+  .disc-tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin:0 0 18px;overflow-x:auto;}
+  .disc-tab{background:none;border:0;border-bottom:2px solid transparent;padding:9px 14px;margin-bottom:-1px;
+            font:inherit;font-size:13.5px;color:var(--text-muted);cursor:pointer;white-space:nowrap;}
+  .disc-tab:hover{color:var(--text-primary);}
+  .disc-tab.on{color:var(--text-primary);font-weight:600;border-bottom-color:var(--accent);}
+  .scan-bar{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;}
+  .scan-status{font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+  .scan-status b{color:var(--text-primary);font-weight:600;}
+  .scan-actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap;}
+  .scan-depth{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-muted);}
+  .scan-depth select{background:var(--bg-panel);border:1px solid var(--border);border-radius:7px;
+                     padding:6px 9px;font:inherit;font-size:12.5px;color:var(--text-primary);}
+  .spin{width:12px;height:12px;border-radius:50%;border:2px solid var(--accent-soft);border-top-color:var(--accent);
+        animation:spin .8s linear infinite;flex:none;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){.spin{animation:none;}}
+
+  .e-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px;}
+  .e-tile{background:var(--bg-panel);border:1px solid var(--border);border-radius:11px;padding:14px 15px;}
+  .e-tile .lab{font-family:'IBM Plex Mono';font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-muted);margin-bottom:7px;}
+  .e-tile .val{font-size:25px;font-weight:700;letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums;}
+  .e-tile .ft{font-size:11.5px;color:var(--text-muted);margin-top:6px;}
+
+  .e-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:18px;align-items:start;}
+  @media (max-width:980px){.e-grid{grid-template-columns:1fr;}}
+
+  .tier-row{display:grid;grid-template-columns:22px minmax(0,1fr) 100px;gap:12px;align-items:center;
+            padding:11px 0;border-bottom:1px solid var(--border-soft);}
+  .tier-row:last-child{border-bottom:none;padding-bottom:0;}
+  .tier-row .tn{font-family:'IBM Plex Mono';font-size:11px;color:var(--text-muted);}
+  .tier-row .tt{font-size:13.5px;font-weight:500;margin-bottom:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .tier-row .tbar{height:6px;background:var(--bg-raised);border-radius:3px;overflow:hidden;}
+  .tier-row .tbar i{display:block;height:100%;border-radius:3px;background:var(--silver);}
+  .tier-row .tbar i.agent{background:var(--accent);}
+  .tier-row .tbar i.off{background:transparent;}
+  .tier-row .tv{text-align:right;font-family:'IBM Plex Mono';font-size:11.5px;color:var(--text-muted);}
+  .tier-row .tv b{display:block;color:var(--text-primary);font-size:13px;font-weight:600;}
+  .tier-row.skipped{opacity:.5;}
+  .kind{font-family:'IBM Plex Mono';font-size:9.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+        padding:2px 7px;border-radius:5px;background:var(--bg-raised);color:var(--text-secondary);}
+  .kind.agent{background:var(--accent-soft);color:var(--accent-ink);}
+
+  .q-item{display:grid;grid-template-columns:70px minmax(0,1fr);gap:12px;padding:11px 0;
+          border-bottom:1px solid var(--border-soft);align-items:start;}
+  .q-item:last-child{border-bottom:none;padding-bottom:0;}
+  .q-item .qt{font-size:13px;color:var(--text-secondary);line-height:1.5;}
+  .q-item .qt code{font-family:'IBM Plex Mono';font-size:11.5px;background:var(--bg-panel-2);
+                   border:1px solid var(--border-soft);border-radius:4px;padding:0 4px;color:var(--text-primary);}
+  .sev{font-family:'IBM Plex Mono';font-size:9.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+       padding:3px 7px;border-radius:5px;text-align:center;}
+  .sev.high{background:var(--critical-soft);color:var(--critical);}
+  .sev.medium{background:var(--warning-soft);color:var(--warning);}
+  .sev.low{background:var(--bg-raised);color:var(--text-secondary);}
+  .q-kind{display:block;font-family:'IBM Plex Mono';font-size:10px;color:var(--text-muted);margin-top:4px;text-transform:uppercase;letter-spacing:.04em;}
+
+  .est-table-wrap{overflow-x:auto;}
+  .est-table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px;}
+  .est-table th{text-align:left;font-family:'IBM Plex Mono';font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+                color:var(--text-muted);font-weight:600;padding:0 10px 8px;border-bottom:1px solid var(--border);white-space:nowrap;}
+  .est-table td{padding:9px 10px;border-bottom:1px solid var(--border-soft);color:var(--text-secondary);vertical-align:top;}
+  .est-table tr:last-child td{border-bottom:none;}
+  .est-table .mono{font-family:'IBM Plex Mono';font-size:11.5px;color:var(--text-primary);}
+  .est-table .num{font-family:'IBM Plex Mono';text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .integ{font-family:'IBM Plex Mono';font-size:9.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+         padding:2px 7px;border-radius:5px;white-space:nowrap;}
+  .integ.intact{background:var(--good-soft);color:var(--good);}
+  .integ.orphans{background:var(--warning-soft);color:var(--warning);}
+  .integ.weak{background:var(--critical-soft);color:var(--critical);}
+  .integ.identical{background:var(--bg-raised);color:var(--text-secondary);}
+  .integ.diverged{background:var(--critical-soft);color:var(--critical);}
+  .integ.ready{background:var(--good-soft);color:var(--good);}
+  .integ.quality{background:var(--warning-soft);color:var(--warning);}
+  .integ.missing{background:var(--critical-soft);color:var(--critical);}
+  .sens-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;margin:0 6px 6px 0;
+             background:var(--warning-soft);color:var(--warning);font-size:12px;font-weight:600;}
+  .sens-chip b{font-family:'IBM Plex Mono';}
+  .ent-row{padding:11px 0;border-bottom:1px solid var(--border-soft);}
+  .ent-row:last-child{border-bottom:none;padding-bottom:0;}
+  .ent-row .eh{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:4px;}
+  .ent-row .en{font-family:'IBM Plex Mono';font-size:12px;color:var(--text-primary);font-weight:600;}
+  .ent-row .em{font-size:12.5px;color:var(--text-secondary);}
+  .ent-row .ec{font-size:12px;color:var(--warning);margin-top:4px;}
+  .note-line{font-size:12px;color:var(--text-muted);margin:10px 0 0;}
+
   .mem-card{border:1px solid var(--border-soft);border-radius:10px;padding:11px 14px;background:var(--bg-panel-2);margin-bottom:8px;
            display:flex;justify-content:space-between;gap:12px;align-items:flex-start;}
   .mem-card:last-child{margin-bottom:0;}
@@ -518,6 +603,7 @@ function timeAgo(iso){
 let currentTarget = "duckdb";
 let currentDomain = "insurance";
 let currentStep   = 1;          // land on Discovery: knowing the estate is the product's first real value
+let currentDiscoveryTab = 'estate';   // survives re-renders: reloadJourney() rebuilds the whole screen
 let journeyData   = null;
 let pendingRuns   = [];
 
@@ -778,7 +864,37 @@ function renderScreen(){
   else if (s.id === 'sources') {
     const src = o.contracted_sources || [];
     const disc = o.discovery_detail || [];
-    body = `<div class="panel">
+    const tab = currentDiscoveryTab;
+    body = `<div class="disc-tabs" role="tablist">
+      <button type="button" class="disc-tab ${tab==='estate'?'on':''}" onclick="switchDiscTab('estate')">Estate</button>
+      <button type="button" class="disc-tab ${tab==='findings'?'on':''}" onclick="switchDiscTab('findings')">Findings</button>
+      <button type="button" class="disc-tab ${tab==='connect'?'on':''}" onclick="switchDiscTab('connect')">Connect a source</button>
+    </div>
+    <div data-disc="estate" ${tab==='estate'?'':'hidden'}>
+      <div class="panel">
+        <div class="panel-head"><h3>Estate scan</h3>
+          <span class="note">Mechanical tiers cover everything · the agent reads only the shortlist</span></div>
+        <div class="scan-bar">
+          <div id="scanStatus" class="scan-status"><span class="empty-note" style="padding:0;">Loading…</span></div>
+          <div class="scan-actions">
+            <label class="scan-depth" for="scanTiers">Depth
+              <select id="scanTiers">
+                <option value="4">All 4 tiers (with agent)</option>
+                <option value="3">Tiers 1–3 (mechanical)</option>
+                <option value="1">Tier 1 only (census)</option>
+              </select>
+            </label>
+            <button type="button" class="btn primary" id="scanBtn" onclick="startEstateScan()">Run scan</button>
+          </div>
+        </div>
+      </div>
+      <div id="estateOverview"></div>
+    </div>
+    <div data-disc="findings" ${tab==='findings'?'':'hidden'}>
+      <div id="estateFindings"><div class="empty-note">Loading…</div></div>
+    </div>
+    <div data-disc="connect" ${tab==='connect'?'':'hidden'}>
+    <div class="panel">
       <div class="panel-head"><h3>Discovery status</h3>
         <span class="note">contracts/sources/${esc(currentDomain)}/ vs. contracts/discovery/${esc(currentDomain)}/</span></div>
       <div class="stats">
@@ -812,6 +928,7 @@ function renderScreen(){
     <div class="panel">
       <div class="panel-head"><h3>Profiled sources</h3><span class="note">Persisted to contracts/discovery/${esc(currentDomain)}/</span></div>
       <div id="profileList">${disc.length ? '' : '<div class="empty-note">Nothing profiled yet for this domain.</div>'}</div>
+    </div>
     </div>`;
   }
 
@@ -1018,7 +1135,7 @@ dim_awm_portfolio | scd1"></textarea></label>
   }
   if (s.id === 'build') { refreshFlow(); loadAgentRuns(); }
   if (s.id === 'operate') { refreshAlerts(); loadTicketsUI(); }
-  if (s.id === 'sources') { renderConnFields(); loadProfiles(); }
+  if (s.id === 'sources') { renderConnFields(); loadProfiles(); loadEstate(); }
   if (s.id === 'validate') { loadDashboardUI(); }
 }
 
@@ -1097,6 +1214,211 @@ async function profileConnection(){
   }
 }
 window.profileConnection = profileConnection;
+
+/* ============================== estate scan & report (step 01) ============================== */
+let estatePollTimer = null;
+
+function switchDiscTab(tab){
+  currentDiscoveryTab = tab;
+  document.querySelectorAll('.disc-tab').forEach(b => b.classList.toggle('on', b.textContent.trim().toLowerCase().startsWith(tab === 'connect' ? 'connect' : tab)));
+  document.querySelectorAll('[data-disc]').forEach(p => { p.hidden = p.getAttribute('data-disc') !== tab; });
+}
+window.switchDiscTab = switchDiscTab;
+
+// Questions arrive with `identifiers` in backticks. Escape first, then promote -- esc() leaves
+// backticks alone, so this can't reintroduce markup from the data.
+function qText(s){ return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>'); }
+
+function scanStatusHtml(scans, running){
+  if (running) {
+    return `<span class="spin" aria-hidden="true"></span><b>Scanning ${esc(currentDomain)} on ${esc(currentTarget)}…</b>
+      <span>${currentTarget === 'databricks' ? 'Every query is a round trip to the warehouse — this takes a few minutes.' : 'Usually under two minutes with the agent tier.'}</span>`;
+  }
+  const last = (scans || []).find(s => s.status === 'completed');
+  const failed = (scans || [])[0] && scans[0].status === 'failed' ? scans[0] : null;
+  if (failed) return `<span class="sev high">failed</span> <span>${esc(failed.note || 'the last scan failed')}</span>`;
+  if (!last) return `<span>No scan yet for <b>${esc(currentDomain)}</b> on ${esc(currentTarget)}. Run one to see what's actually in the estate.</span>`;
+  return `<span>Last scan <b>${timeAgo(last.ended_at)}</b> · ${fmtNum(last.tables_scanned)} tables across ${fmtNum(last.schemas_scanned)} schemas · reached tier ${last.tier_reached}</span>`;
+}
+
+function estateOverviewHtml(r){
+  if (!r.scan) return '';
+  const c = r.coverage, rel = r.relationships, q = r.open_questions || [];
+  const reached = r.scan.tier_reached || 0;
+  const edges = rel.intact.length + rel.orphans.length + rel.weak.length;
+  const pct = n => c.tables ? Math.max(2, Math.round(100 * n / c.tables)) : 0;
+  const high = q.filter(x => x.severity === 'high').length;
+
+  const tier = (n, name, agent, value, sub, width) => {
+    const ran = reached >= n;
+    return `<div class="tier-row ${ran ? '' : 'skipped'}">
+      <span class="tn">0${n}</span>
+      <div><div class="tt">${name} <span class="kind ${agent ? 'agent' : ''}">${agent ? 'agent' : 'mechanical'}</span>${ran ? '' : '<span class="kind">not run</span>'}</div>
+        <div class="tbar"><i class="${agent ? 'agent' : ''} ${ran ? '' : 'off'}" style="width:${ran ? width : 0}%"></i></div></div>
+      <div class="tv"><b>${ran ? value : '—'}</b>${sub}</div>
+    </div>`;
+  };
+
+  const questions = q.slice(0, 8).map(x => `<div class="q-item">
+      <div><span class="sev ${esc(x.severity)}">${esc(x.severity)}</span><span class="q-kind">${esc(x.kind)}</span></div>
+      <div class="qt">${qText(x.question)}</div>
+    </div>`).join('') || `<div class="empty-note">Nothing open — every finding in this scan was either clean or already resolved.</div>`;
+
+  return `<div class="e-tiles">
+      <div class="e-tile"><div class="lab">Schemas</div><div class="val">${fmtNum(c.schemas)}</div>
+        <div class="ft">${c.unclassified_schemas.length ? `${c.unclassified_schemas.length} belong to no domain` : 'all owned by a domain'}</div></div>
+      <div class="e-tile"><div class="lab">Tables inventoried</div><div class="val">${fmtNum(c.tables)}</div>
+        <div class="ft">${fmtNum(c.columns)} columns · ${fmtNum(c.rows)} rows</div></div>
+      <div class="e-tile"><div class="lab">Sensitive columns</div><div class="val" style="color:var(--warning)">${fmtNum(r.sensitivity.total)}</div>
+        <div class="ft">candidates, by column name</div></div>
+      <div class="e-tile"><div class="lab">Open questions</div><div class="val" style="color:${high ? 'var(--critical)' : 'var(--text-primary)'}">${fmtNum(q.length)}</div>
+        <div class="ft">${high} high severity</div></div>
+    </div>
+    <div class="e-grid">
+      <div class="panel" style="margin-bottom:0;">
+        <div class="panel-head"><h3>Scan coverage</h3><span class="note">scan ${esc(r.scan.scan_id)}</span></div>
+        ${tier(1, 'Inventory sweep', false, fmtNum(c.tables), 'every table', 100)}
+        ${tier(2, 'Statistical profile', false, fmtNum(c.profiled_tables), 'shortlisted', pct(c.profiled_tables))}
+        ${tier(3, 'Relationships &amp; mirrors', false, fmtNum(edges), 'references found', pct(c.profiled_tables))}
+        ${tier(4, 'Semantic enrichment', true, fmtNum(c.enriched_tables), 'tables read', pct(c.enriched_tables))}
+        ${r.scan.note ? `<p class="note-line">${esc(r.scan.note)}</p>` : ''}
+      </div>
+      <div class="panel" style="margin-bottom:0;">
+        <div class="panel-head"><h3>Open questions</h3>
+          <span class="note">${q.length > 8 ? `top 8 of ${q.length} · ` : ''}each needs a named human</span></div>
+        ${questions}
+        ${q.length > 8 ? `<p class="note-line"><a href="#" onclick="switchDiscTab('findings');return false;">See all findings →</a></p>` : ''}
+      </div>
+    </div>`;
+}
+
+function estateFindingsHtml(r){
+  if (!r.scan) return `<div class="empty-note">No scan yet — run one on the Estate tab.</div>`;
+  const rel = r.relationships;
+  const refRows = [...rel.weak, ...rel.orphans, ...rel.intact].map(x => `<tr>
+      <td class="mono">${esc(x.from_schema)}.${esc(x.from_table)}.${esc(x.from_column)}</td>
+      <td class="mono">${esc(x.to_table)}.${esc(x.to_column)}</td>
+      <td class="num">${x.overlap_pct}%</td>
+      <td><span class="integ ${esc(x.confidence)}">${esc(x.confidence)}</span></td></tr>`).join('');
+
+  const mirrors = [...r.mirrors.diverged.map(m => ({...m, state:'diverged'})), ...r.mirrors.identical.map(m => ({...m, state:'identical'}))];
+  const mirrorRows = mirrors.map(m => `<tr>
+      <td class="mono">${esc(m.table)}</td><td class="mono">${esc(m.mirrors)}</td>
+      <td class="num">${m.state === 'diverged' ? fmtNum(m.differing_rows) + ' rows differ' : fmtNum(m.rows) + ' rows'}</td>
+      <td><span class="integ ${m.state}">${m.state}</span></td></tr>`).join('');
+
+  const sens = r.sensitivity.by_class.map(b => `<span class="sens-chip">${esc(b.class)} <b>${b.count}</b></span>`).join('');
+  const sensRows = r.sensitivity.by_class.flatMap(b => b.columns.map(col => `<tr><td class="mono">${esc(col)}</td><td>${esc(b.class)}</td></tr>`)).join('');
+
+  const hot = r.quality.hotspots.map(h => `<tr><td class="mono">${esc(h.column)}</td><td class="num">${h.null_pct}%</td></tr>`).join('');
+  const expected = r.quality.expected_nulls.length;
+
+  const readiness = (r.readiness || []).map(rd => `
+      <div class="ent-row"><div class="eh"><span class="en">${esc(rd.intent)}</span>
+        <span class="integ ${rd.ready === rd.total ? 'ready' : 'quality'}">${rd.ready}/${rd.total} ready</span></div>
+        <div class="est-table-wrap"><table class="est-table" style="margin-top:6px;"><thead><tr><th>Data point</th><th>Report</th><th>Found in</th><th>State</th></tr></thead><tbody>
+        ${rd.data_points.map(p => `<tr><td class="mono">${esc(p.data_point)}</td><td>${esc(p.report || '')}</td>
+          <td class="mono">${p.found_in.length ? p.found_in.map(esc).join('<br>') : '—'}</td>
+          <td><span class="integ ${esc(p.status)}">${esc(p.status)}</span></td></tr>`).join('')}
+        </tbody></table></div></div>`).join('');
+
+  const entities = (r.entities || []).map(e => `<div class="ent-row">
+      <div class="eh"><span class="en">${esc(e.table)}</span><span class="kind">${esc(e.entity_type)}</span>
+        <span class="empty-note" style="padding:0;">${fmtNum(e.rows)} rows</span></div>
+      <div class="em">${esc(e.business_meaning || '')}</div>
+      ${e.concerns ? `<div class="ec">${esc(e.concerns)}</div>` : ''}</div>`).join('');
+
+  const allQ = (r.open_questions || []).map(x => `<div class="q-item">
+      <div><span class="sev ${esc(x.severity)}">${esc(x.severity)}</span><span class="q-kind">${esc(x.kind)}</span></div>
+      <div class="qt">${qText(x.question)}</div></div>`).join('');
+
+  return `
+    <div class="panel"><div class="panel-head"><h3>All open questions</h3><span class="note">${(r.open_questions||[]).length} · generated from findings, phrased as questions — never conclusions</span></div>
+      ${allQ || '<div class="empty-note">None.</div>'}</div>
+
+    <div class="panel"><div class="panel-head"><h3>References</h3>
+        <span class="note">direction from the model · integrity from the data · ${rel.orphans.length + rel.weak.length} with orphans</span></div>
+      ${refRows ? `<div class="est-table-wrap"><table class="est-table"><thead><tr><th>From</th><th>To</th><th class="num">Resolves</th><th>Integrity</th></tr></thead><tbody>${refRows}</tbody></table></div>`
+               : '<div class="empty-note">No references found (tier 3 not run, or no id-like columns shared).</div>'}</div>
+
+    <div class="e-grid">
+      <div class="panel" style="margin-bottom:18px;"><div class="panel-head"><h3>Sensitive data</h3>
+          <span class="note">candidate classification by column name — confirm before relying on it</span></div>
+        ${sens ? `<div style="margin-bottom:10px;">${sens}</div><div class="est-table-wrap"><table class="est-table"><thead><tr><th>Column</th><th>Class</th></tr></thead><tbody>${sensRows}</tbody></table></div>`
+               : '<div class="empty-note">No personal-data column names found.</div>'}</div>
+      <div class="panel" style="margin-bottom:18px;"><div class="panel-head"><h3>Quality hotspots</h3>
+          <span class="note">≥ ${r.quality.threshold_pct}% null · ${expected} expected-by-design excluded</span></div>
+        ${hot ? `<div class="est-table-wrap"><table class="est-table"><thead><tr><th>Column</th><th class="num">Null</th></tr></thead><tbody>${hot}</tbody></table></div>`
+              : `<div class="empty-note">No unexpected null-heavy columns in the profiled tables.</div>`}</div>
+    </div>
+
+    <div class="panel"><div class="panel-head"><h3>Mirrored tables</h3>
+        <span class="note">same name, columns and rows in two schemas — compared on business columns, build metadata excluded</span></div>
+      ${mirrorRows ? `<div class="est-table-wrap"><table class="est-table"><thead><tr><th>Copy</th><th>Mirrors</th><th class="num">Size</th><th>Content</th></tr></thead><tbody>${mirrorRows}</tbody></table></div>`
+                   : '<div class="empty-note">No mirrored tables.</div>'}</div>
+
+    <div class="panel"><div class="panel-head"><h3>Readiness against intent</h3>
+        <span class="note">every required data point, matched to the estate by exact column name</span></div>
+      ${readiness || `<div class="empty-note">No intent captured for ${esc(currentDomain)} yet — capture one in Catalogue &amp; intent, then re-run the report.</div>`}</div>
+
+    <div class="panel"><div class="panel-head"><h3>What each table appears to be</h3>
+        <span class="note">The Data Detective's reading · suggestions, not facts · measured findings are shown above, never restated here</span></div>
+      ${entities || '<div class="empty-note">Tier 4 not run on this scan.</div>'}</div>`;
+}
+
+async function loadEstate(){
+  const statusEl = document.getElementById('scanStatus');
+  if (!statusEl) return;
+  try {
+    const [sr, rr] = await Promise.all([
+      api(`/api/estate/scans?domain=${encodeURIComponent(currentDomain)}&target=${encodeURIComponent(currentTarget)}`),
+      api(`/api/estate/report?domain=${encodeURIComponent(currentDomain)}&target=${encodeURIComponent(currentTarget)}`),
+    ]);
+    const s = await sr.json(), r = await rr.json();
+    if (!sr.ok) throw new Error(s.detail || sr.statusText);
+    if (!rr.ok) throw new Error(r.detail || rr.statusText);
+    statusEl.innerHTML = scanStatusHtml(s.scans, s.running);
+    const btn = document.getElementById('scanBtn');
+    if (btn) { btn.disabled = !!s.running; btn.textContent = s.running ? 'Scanning…' : 'Run scan'; }
+    const ov = document.getElementById('estateOverview');
+    if (ov) ov.innerHTML = estateOverviewHtml(r);
+    const fin = document.getElementById('estateFindings');
+    if (fin) fin.innerHTML = estateFindingsHtml(r);
+    if (s.running) scheduleEstatePoll();
+  } catch (e) {
+    statusEl.innerHTML = `<span class="sev high">error</span> <span>Could not load the estate: ${esc(e.message)}</span>`;
+  }
+}
+window.loadEstate = loadEstate;
+
+function scheduleEstatePoll(){
+  clearTimeout(estatePollTimer);
+  estatePollTimer = setTimeout(() => {
+    // Stop polling the moment the user leaves Discovery -- the scan keeps running server-side
+    // regardless, and its row is picked up next time the screen opens.
+    if (!document.getElementById('scanStatus')) return;
+    loadEstate();
+  }, 3000);
+}
+
+async function startEstateScan(){
+  const tiers = document.getElementById('scanTiers').value;
+  const fd = new FormData();
+  fd.append('domain', currentDomain); fd.append('target', currentTarget); fd.append('tiers', tiers);
+  const btn = document.getElementById('scanBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
+  try {
+    const r = await api('/api/estate/scan', {method:'POST', body: fd});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    await loadEstate();
+    scheduleEstatePoll();
+  } catch (e) {
+    document.getElementById('scanStatus').innerHTML = `<span class="sev high">error</span> <span>${esc(e.message)}</span>`;
+    if (btn) { btn.disabled = false; btn.textContent = 'Run scan'; }
+  }
+}
+window.startEstateScan = startEstateScan;
 
 function profileCard(p){
   const rows = (p.columns || []).map(c => `<tr>

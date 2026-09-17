@@ -35,7 +35,7 @@ if _env_path.exists():
             _k, _v = _line.split("=", 1)
             os.environ.setdefault(_k.strip(), _v.strip())
 
-from webapp.backend import agent_runs, architecture, dashboard, discovery, intent, journey, ops_tickets, pipeline, sdlc, test_pack, uploads  # noqa: E402
+from webapp.backend import agent_runs, architecture, dashboard, discovery, estate, intent, journey, ops_tickets, pipeline, sdlc, test_pack, uploads  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
 app = FastAPI(title="Jarvis Control Room")
@@ -228,6 +228,38 @@ def api_discovery_profile(request: Request, body: ProfileRequest):
 def api_discovery_list(request: Request, domain: str = pipeline.DEFAULT_DOMAIN):
     _check_domain(request, domain)
     return {"domain": domain, "profiles": discovery.list_profiles(domain)}
+
+
+@app.post("/api/estate/scan")
+def api_estate_scan(request: Request, domain: str = Form(...), target: str = Form("duckdb"),
+                    tiers: int = Form(4)):
+    """Starts a tiered estate scan in the background and returns its id straight away -- see
+    webapp/backend/estate.py for why it can't run inside the request."""
+    _check_domain(request, domain)
+    if tiers not in (1, 2, 3, 4):
+        raise HTTPException(status_code=400, detail="tiers must be 1, 2, 3 or 4")
+    return estate.start_scan(domain, target, tiers)
+
+
+@app.get("/api/estate/scans")
+def api_estate_scans(request: Request, domain: str = pipeline.DEFAULT_DOMAIN, target: str = "duckdb"):
+    _check_domain(request, domain)
+    try:
+        return {"domain": domain, "running": estate.is_running(domain, target),
+                "scans": estate.list_scans(domain, target)}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/api/estate/report")
+def api_estate_report(request: Request, domain: str = pipeline.DEFAULT_DOMAIN, target: str = "duckdb",
+                      scan_id: str | None = None):
+    """The estate report for one scan -- the latest completed one if no id is given."""
+    _check_domain(request, domain)
+    try:
+        return estate.report(domain, target, scan_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 class IntentRequest(BaseModel):
