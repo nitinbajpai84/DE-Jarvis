@@ -161,16 +161,24 @@ def _tickets(domain: str, target: str, wide: bool) -> tuple[str, str]:
 
 def _proposals(domain: str, target: str, wide: bool) -> tuple[str, str]:
     """What the team has proposed and what people decided -- so an agent doesn't re-propose a
-    change that is already waiting, or one that was declined without saying what changed."""
+    change that is already waiting, or one that was declined without saying what changed.
+
+    Presented as HISTORY with its date, not as current state: in the 2026-09-17 live smoke test
+    an intent was deleted and re-created, and the Delivery Lead refused to propose adding a data
+    point because an older proposal to add it had been "approved" -- while the intent in its own
+    context plainly didn't have it. Whether a change is in effect is a question for the records."""
+    import datetime as _dt
     from emitters.proposals import list_proposals
     items = list_proposals(domain, limit=20)
     if not items:
         return "Proposals", "Nothing proposed yet."
-    lines = []
+    lines = ["History of proposals, newest first. An approved proposal says what was done THEN; the current "
+             "records (intents, architecture, sources) say what is in effect NOW -- check them before saying a change is already made."]
     for p in items:
+        when = (p.get("decided_at") or p.get("proposed_at") or "")[:10]
         decided = f" by {p['decided_by']}" if p.get("decided_by") else ""
-        note = f" -- \u201c{p['decision_note']}\u201d" if p.get("decision_note") else ""
-        lines.append(f"- [{p['status']}{decided}] {p['title']} ({p['kind']}, proposed by {p['agent']}){note}")
+        note = f" -- “{p['decision_note']}”" if p.get("decision_note") else ""
+        lines.append(f"- {when} [{p['status']}{decided}] {p['title']} ({p['kind']}, proposed by {p['agent']}){note}")
     return "Proposals", "\n".join(lines)
 
 

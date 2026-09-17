@@ -72,7 +72,8 @@ class Smoke:
 
     # -- the run --------------------------------------------------------------------------------
     def run(self) -> None:
-        state: dict[str, Any] = {}
+        # a fresh intent per run: a re-used id meets the previous run's proposal history
+        state: dict[str, Any] = {"intent_name": f"Smoke claims {_dt.datetime.now(_dt.timezone.utc):%Y%m%d%H%M%S}"}
 
         self.area = "1 Platform & sign-in"
         self.check("frontend served by Vercel with this build's features", self._frontend)
@@ -150,6 +151,7 @@ class Smoke:
         self.check("agent files a proposal from conversation", lambda: self._agent_proposes(state))
         self.check("approval runs it under the approver's name", lambda: self._approve(state))
         self.check("second decision refused (409); decline needs a reason", lambda: self._decide_rules(state))
+        self.check("agent trusts current records over past approvals", self._history_vs_records)
 
         self.area = "11 Build, test, operate"
         self.check("medallion flow (insurance, Databricks)", lambda: self._read("insurance", "/api/pipeline/flow?domain=insurance&target=databricks"))
@@ -286,7 +288,7 @@ class Smoke:
 
     def _intent_capture(self, state):
         r = self.j(self.call("admin", "POST", "/api/intent", json={"domain": SANDBOX, "intent": {
-            "name": "Smoke claims", "business_outcome": "Claims by month",
+            "name": state["intent_name"], "business_outcome": "Claims by month",
             "reports": [{"name": "Claims by month", "required_data_points": ["claim_id", "amount"]}]}}))
         state["intent_id"] = r["intent_id"]
         ids = [i["intent_id"] for i in self.j(self.call("admin", "GET", f"/api/intents?domain={SANDBOX}"))["intents"]]
@@ -295,7 +297,7 @@ class Smoke:
 
     def _intent_revise(self, state):
         self.j(self.call("admin", "POST", "/api/intent", json={"domain": SANDBOX, "intent_id": state["intent_id"], "intent": {
-            "name": "Smoke claims", "business_outcome": "Claims by month",
+            "name": state["intent_name"], "business_outcome": "Claims by month",
             "reports": [{"name": "Claims by month", "required_data_points": ["claim_id", "loss_date", "broker_code"]}]}}))
         v = self.j(self.call("admin", "GET", f"/api/intent/changes?domain={SANDBOX}&intent_id={state['intent_id']}&target=duckdb"))
         ch = v["diff"]["reports_changed"][0]
@@ -444,6 +446,24 @@ class Smoke:
         p = self.j(self.call("admin", "POST", f"/api/proposals/{pid}/decide", data={"domain": SANDBOX, "decision": "decline", "note": "smoke test: declined on purpose"}))
         assert p["status"] == "declined"
         return "409 on re-decide, 400 without note, declined with note"
+
+    def _history_vs_records(self):
+        """Found by the second live run: with an old "add paid_amount" proposal approved for a
+        since-deleted intent of the same id, the Delivery Lead refused to propose it again for the
+        re-created intent. Re-creates that situation on purpose and expects a proposal."""
+        self.j(self.call("admin", "POST", "/api/intent", json={"domain": SANDBOX, "intent_id": "smoke-claims", "intent": {
+            "name": "Smoke claims", "reports": [{"name": "Claims by month", "required_data_points": ["claim_id"]}]}}))
+        try:
+            r = self.j(self.call("admin", "POST", "/api/agents/delivery/chat", timeout=180, json={
+                "domain": SANDBOX, "message": "Please propose adding paid_amount to the Claims by month report of intent smoke-claims."}))
+            props = r["trace"]["proposals"]
+            assert props, f"no proposal filed: {r['reply'][:160]}"
+            for pr in props:
+                self.call("admin", "POST", f"/api/proposals/{pr['proposal_id']}/decide",
+                          data={"domain": SANDBOX, "decision": "decline", "note": "smoke test: checked, not applied"})
+            return f"filed {props[0]['kind']} despite earlier approval history"
+        finally:
+            self.call("admin", "DELETE", f"/api/intent/{SANDBOX}/smoke-claims")
 
     def _read(self, who, path):
         r = self.j(self.call(who, "GET", path, timeout=180))
