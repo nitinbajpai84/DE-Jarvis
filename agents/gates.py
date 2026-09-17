@@ -22,15 +22,18 @@ from __future__ import annotations
 
 # Agent numbering follows the product blueprint (1=BA, 2=SA, 3=PM, 4=DE, 5=Test, 6=Viz, 7=Ops),
 # which is what the customer sees. The repo's .claude/agents/*.md names are the implementation
-# detail underneath, mapped here so neither vocabulary has to win.
+# detail underneath, mapped here so neither vocabulary has to win. "persona" is the display name
+# the Foundation First rebrand introduced -- "role" stays as the plain job-title fallback and the
+# thing every prep tool/log line still refers to internally, so renaming a persona is a one-line
+# change here, never a hunt through agents/jarvis_tools.py's tool docstrings.
 AGENTS = {
-    1: {"num": 1, "role": "Business Analyst", "colour": "#4C8DFF", "defs": ["business-analyst"]},
-    2: {"num": 2, "role": "Solution Architect", "colour": "#9B7FE8", "defs": ["solution-architect", "data-architect"]},
-    3: {"num": 3, "role": "Program Manager", "colour": "#2FE0C6", "defs": ["program-manager"]},
-    4: {"num": 4, "role": "Data Engineer", "colour": "#CF8A4E", "defs": ["de-bronze", "de-silver", "de-gold"]},
-    5: {"num": 5, "role": "Test Manager", "colour": "#3FC07A", "defs": ["test-manager"]},
-    6: {"num": 6, "role": "Visualisation", "colour": "#5CC8E8", "defs": []},
-    7: {"num": 7, "role": "Ops Manager", "colour": "#E2793D", "defs": ["ops-monitor"]},
+    1: {"num": 1, "role": "Business Analyst", "persona": "The Source Sleuth", "colour": "#4C8DFF", "defs": ["business-analyst"]},
+    2: {"num": 2, "role": "Solution Architect", "persona": "The Master Architect", "colour": "#9B7FE8", "defs": ["solution-architect", "data-architect"]},
+    3: {"num": 3, "role": "Program Manager", "persona": "Mr. Program Manager", "colour": "#2FE0C6", "defs": ["program-manager"]},
+    4: {"num": 4, "role": "Data Engineer", "persona": "The Superstar Data Engineer", "colour": "#CF8A4E", "defs": ["de-bronze", "de-silver", "de-gold"]},
+    5: {"num": 5, "role": "Test Manager", "persona": "The Quality Guardian", "colour": "#3FC07A", "defs": ["test-manager"]},
+    6: {"num": 6, "role": "Visualisation", "persona": "The Insight Artist", "colour": "#5CC8E8", "defs": []},
+    7: {"num": 7, "role": "Ops Manager", "persona": "The Night Watch", "colour": "#E2793D", "defs": ["ops-monitor"]},
 }
 
 JOURNEY = [

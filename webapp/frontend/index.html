@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Jarvis Control Room</title>
+<title>Foundation First</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
   :root{
@@ -436,7 +436,7 @@
 
 <div class="login-overlay" id="loginOverlay">
   <form class="login-card" id="loginForm">
-    <h2>Jarvis Control Room</h2>
+    <h2>Foundation First</h2>
     <div class="sub">Sign in to view live pipeline &amp; agent-run data.</div>
     <input type="text" id="loginUser" placeholder="Username" autocomplete="username" required>
     <input type="password" id="loginPass" placeholder="Password" autocomplete="current-password" required>
@@ -454,8 +454,8 @@
       <path d="M21 6V15M21 27V36M9 13L17 18M33 13L25 18M9 29L17 24M33 29L25 24" stroke="#2FE0C6" stroke-width="1.2" opacity=".55"/>
     </svg>
     <div class="brand-text">
-      <h1>Jarvis Control Room</h1>
-      <div class="sub">Contract-driven delivery · five steps · human gates that actually stop the machine</div>
+      <h1>Foundation First</h1>
+      <div class="sub">Get the data foundation right, before you build on it · contract-driven · human gates that actually stop the machine</div>
     </div>
   </div>
   <div class="header-right">
@@ -700,7 +700,7 @@ function gateCard(gate){
 /* ============================== screens ============================== */
 function screenHead(s){
   const who = (s.agent_detail || []).map(a =>
-    `<span class="who" style="--c:${esc(a.colour)}"><i></i><b>Agent ${a.num}</b> · ${esc(a.role)}</span>`).join('');
+    `<span class="who" style="--c:${esc(a.colour)}"><i></i><b>${esc(a.persona || 'Agent ' + a.num)}</b> · ${esc(a.role)}</span>`).join('');
   return `<div class="screen-head">
     <div class="eyebrow">Step ${String(s.step).padStart(2,'0')} · ${esc(s.capability)}</div>
     <h2>${esc(s.name)}</h2>
@@ -810,7 +810,7 @@ function renderScreen(){
       </div>
     </div>
     <div class="panel">
-      <div class="panel-head"><h3>Talk to Agent 3</h3>
+      <div class="panel-head"><h3>Talk to Mr. Program Manager</h3>
         <span class="note">Have a conversation instead of typing the form — speak or type, it drafts the intent for you to review</span></div>
       ${chatWidgetHtml('intent')}
     </div>
@@ -844,7 +844,7 @@ active portfolio | has an open position as of the reporting date | investments t
       <div id="gapResults"><div class="empty-note">Run gap analysis to see results here.</div></div>
     </div>
     <div class="panel">
-      <div class="panel-head"><h3>Talk to Agent 2</h3>
+      <div class="panel-head"><h3>Talk to The Master Architect</h3>
         <span class="note">Have a conversation instead of typing the form — speak or type, it drafts the architecture for you to review</span></div>
       ${chatWidgetHtml('architecture')}
     </div>
@@ -896,7 +896,7 @@ dim_awm_portfolio | scd1"></textarea></label>
         <span class="note">Runs the real compiler in preview — nothing writes until a gate is approved</span></div>
       <div class="dropzone" id="dropzone">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 15V4M12 4L7 9M12 4l5 5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3" stroke-linecap="round"/></svg>
-        <div class="dz-title">Drop the Jarvis intake workbook, or click to browse</div>
+        <div class="dz-title">Drop the intake workbook, or click to browse</div>
         <div class="dz-sub">One workbook — sources, silver model and gold model.
           ${currentUserDomains === '*' ? '' : `Your account can only freeze a workbook that declares the ${esc(currentDomain)} domain — adding a new domain from scratch needs an admin account.`}</div>
       </div>
@@ -939,7 +939,7 @@ dim_awm_portfolio | scd1"></textarea></label>
     </div>
     <div class="panel">
       <div class="panel-head"><h3>Dashboard</h3>
-        <span class="note">Agent 6 — real gold-layer data, either the domain's saved dashboard or a fresh proposal</span></div>
+        <span class="note">The Insight Artist — real gold-layer data, either the domain's saved dashboard or a fresh proposal</span></div>
       <div class="dash-toolbar">
         <button class="btn ghost" onclick="loadDashboardUI()">Refresh</button>
         <button class="btn primary" id="dashSaveBtn" style="display:none;" onclick="saveDashboardUI()">Accept &amp; save this proposal</button>
@@ -964,7 +964,7 @@ dim_awm_portfolio | scd1"></textarea></label>
     </div>
     <div class="panel">
       <div class="panel-head"><h3>Incident tickets</h3>
-        <span class="note">Agent 7 detects (via ${'the real per-layer test pack'}) — Agent 4 fixes — G5 re-verifies before closing</span></div>
+        <span class="note">The Night Watch detects (via the real per-layer test pack) — The Superstar Data Engineer fixes — G5 re-verifies before closing</span></div>
       <div class="conn-actions" style="margin-top:0;">
         <button class="btn primary" onclick="scanForTicketsUI()">Scan for issues</button>
       </div>
