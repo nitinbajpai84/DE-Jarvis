@@ -178,7 +178,13 @@ def _proposals(domain: str, target: str, wide: bool) -> tuple[str, str]:
         when = (p.get("decided_at") or p.get("proposed_at") or "")[:10]
         decided = f" by {p['decided_by']}" if p.get("decided_by") else ""
         note = f" -- “{p['decision_note']}”" if p.get("decision_note") else ""
-        lines.append(f"- {when} [{p['status']}{decided}] {p['title']} ({p['kind']}, proposed by {p['agent']}){note}")
+        now = ""
+        if p["status"] == "approved":
+            from emitters.proposals import in_effect
+            checked = in_effect(p)
+            if checked is not None:
+                now = f" -- {'in effect now' if checked[0] else 'NOT in effect now'}: {checked[1]}"
+        lines.append(f"- {when} [{p['status']}{decided}] {p['title']} ({p['kind']}, proposed by {p['agent']}){note}{now}")
     return "Proposals", "\n".join(lines)
 
 

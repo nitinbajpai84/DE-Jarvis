@@ -347,6 +347,48 @@ def get(domain: str, proposal_id: str) -> dict[str, Any]:
     return _row(r)
 
 
+def in_effect(p: dict[str, Any]) -> tuple[bool, str] | None:
+    """Whether an approved proposal's change is still true of the records NOW, and what it
+    touched -- checked, not remembered. None for kinds with no lasting state to check (a scan,
+    a recommendation). An agent told only "approved: add paid_amount" repeatedly concluded a
+    different, later intent already had it (live smoke tests, 2026-09-17); a line that says
+    "NOT in effect now" leaves nothing to infer."""
+    params, domain = p.get("params") or {}, p["domain"]
+    try:
+        if p["kind"] == "add_intent_data_points":
+            from emitters.intent import load_intent
+            target = params.get("intent_id") or (p.get("result") or {}).get("intent_id")
+            it = load_intent(domain, target) if target else None
+            if it is None:
+                return False, f"intent {target} no longer exists"
+            rep = next((r for r in it.get("reports") or [] if r.get("name") == params["report"]), None)
+            have = set((rep or {}).get("required_data_points") or [])
+            missing = [d for d in params["data_points"] if d not in have]
+            where = f"intent {target}, report \u201c{params['report']}\u201d"
+            return (not missing, where + (f" does not need {', '.join(missing)}" if missing else " has them"))
+        if p["kind"] == "update_architecture":
+            from emitters.architecture import load_architecture
+            a = load_architecture(domain) or {}
+            diff = [k for k in ("rto", "rpo", "platform_binding", "layering_rationale", "volume_expectations")
+                    if k in params and a.get(k) != params[k]]
+            return (not diff, "architecture record" + (f" now differs on {', '.join(diff)}" if diff else " matches"))
+        if p["kind"] == "review_source_version":
+            from emitters.source_review import _root
+            from emitters import versions
+            meta = next((m for m in versions.list_versions(_root(domain), params["source_id"]) if m["version"] == params["version"]), None)
+            status = ((meta or {}).get("review") or {}).get("status")
+            wanted = "accepted" if params["decision"] == "accept" else "rejected"
+            return (status == wanted, f"source {params['source_id']} v{params['version']} is {status or 'gone'}")
+        if p["kind"] == "assign_ticket":
+            from emitters.ops_tickets import get_ticket
+            t = get_ticket(domain, p.get("target") or "duckdb", int(params["ticket_id"]))
+            now = (t or {}).get("assigned_to")
+            return (now == params["assigned_to"], f"ticket {params['ticket_id']} is assigned to {now or 'nobody'}")
+    except Exception as exc:  # noqa: BLE001 -- unknown is said as unknown
+        return False, f"could not check ({type(exc).__name__})"
+    return None
+
+
 def list_proposals(domain: str, status: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
     con, c = _con(domain)
     try:

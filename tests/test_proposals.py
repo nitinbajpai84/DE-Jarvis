@@ -170,3 +170,21 @@ def test_report_names_must_match_an_existing_report(world):
     proposals.decide("testco", new["proposal_id"], "approve", by="carol")
     reports = {r["name"]: r["required_data_points"] for r in intent_mod.load_intent("testco", "claims")["reports"]}
     assert reports == {"Claims by month": ["claim_id", "paid_amount"], "Monthly claims": ["x"]}
+
+
+def test_past_approvals_are_checked_against_current_records(world):
+    intent_mod.capture_intent("testco", "default", {"name": "Claims", "reports": [
+        {"name": "Claims by month", "required_data_points": ["claim_id"]}]}, "alice")
+    p = _file("add_intent_data_points", {"intent_id": "claims", "report": "Claims by month", "data_points": ["paid_amount"]})
+    done = proposals.decide("testco", p["proposal_id"], "approve", by="carol")
+    assert proposals.in_effect(done) == (True, "intent claims, report \u201cClaims by month\u201d has them")
+    # the intent is re-created without the data point: the approval is history, not current state
+    intent_mod.delete_intent("testco", "claims")
+    assert proposals.in_effect(done) == (False, "intent claims no longer exists")
+    intent_mod.capture_intent("testco", "default", {"name": "Claims", "reports": [
+        {"name": "Claims by month", "required_data_points": ["claim_id"]}]}, "alice")
+    ok, why = proposals.in_effect(done)
+    assert not ok and "does not need paid_amount" in why
+    from emitters import agent_context
+    title, text = agent_context._proposals("testco", "duckdb", False)
+    assert "NOT in effect now: intent claims" in text
