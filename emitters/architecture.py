@@ -64,6 +64,50 @@ def capture_architecture(domain: str, client: str, architecture: dict[str, Any],
     return path
 
 
+def interpret_architecture_image(image_bytes: bytes, mime_type: str) -> dict[str, Any]:
+    """A real Gemini vision call reads an uploaded architecture sketch/photo and proposes a
+    structured summary shaped like capture_architecture()'s own fields -- NEVER written to
+    contracts/ from here. This is a draft for a human to review and explicitly apply (the
+    Control Room's "Apply to the form" button), the same propose-then-human-approves pattern
+    every other capture path in this project already follows; a vision call hallucinating a
+    plausible-looking RTO is exactly the kind of silent invention CLAUDE.md rule 4 forbids
+    treating as fact, so it is surfaced as a suggestion, not committed."""
+    import base64
+    import json as _json
+
+    from langchain.chat_models import init_chat_model
+    from langchain_core.messages import HumanMessage
+
+    b64 = base64.b64encode(image_bytes).decode()
+    prompt = (
+        "This image shows a data architecture diagram or sketch (hand-drawn or formal). "
+        "Respond with ONLY a JSON object (no markdown fences, no commentary) with exactly two "
+        "keys: \"description\" (2-3 sentences describing what the image shows -- the sources, "
+        "layers and flow you can see) and \"suggested_architecture\" (an object with any of "
+        "these keys you can genuinely infer from the image -- omit any you can't: "
+        "\"rto\", \"rpo\", \"platform_binding\", \"layering_rationale\", \"volume_expectations\", "
+        "\"entity_scd\" (a list of {\"entity\": str, \"scd_type\": str} for any named "
+        "tables/entities you can see -- scd_type only if the image actually indicates one, "
+        "otherwise omit scd_type), \"risks\" (a list of {\"risk\": str, \"mitigation\": str})). "
+        "Only include a field if the image actually shows evidence for it -- do not invent a "
+        "plausible-sounding RTO/RPO or SCD strategy that isn't actually depicted."
+    )
+    model = init_chat_model("google_genai:gemini-2.5-flash")
+    message = HumanMessage(content=[
+        {"type": "text", "text": prompt},
+        {"type": "image_url", "image_url": f"data:{mime_type};base64,{b64}"},
+    ])
+    raw = model.invoke([message]).content.strip()
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        raw = raw[raw.index("\n") + 1:] if "\n" in raw else raw
+    parsed = _json.loads(raw)
+    return {
+        "description": parsed.get("description", ""),
+        "suggested_architecture": parsed.get("suggested_architecture", {}),
+    }
+
+
 def _platform_capabilities(target: str) -> dict[str, Any]:
     path = REPO_ROOT / "contracts" / "platform" / f"{target}.yaml"
     if not path.exists():

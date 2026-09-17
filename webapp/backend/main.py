@@ -304,6 +304,31 @@ def api_architecture_check(request: Request, body: ArchitectureCheckRequest):
     return result
 
 
+@app.get("/api/architecture/diagram")
+def api_architecture_diagram(request: Request, domain: str = pipeline.DEFAULT_DOMAIN, level: str = "high"):
+    """Auto-generated from the domain's own real contracts, never hand-drawn -- level=high is
+    source->bronze->silver->gold; level=low is the silver dimensions/facts with their real
+    columns and declared foreign keys. See emitters/diagram.py."""
+    _check_domain(request, domain)
+    from emitters.diagram import high_level_diagram, low_level_diagram
+    return high_level_diagram(domain) if level == "high" else low_level_diagram(domain)
+
+
+@app.post("/api/architecture/interpret-image")
+async def api_architecture_interpret_image(request: Request, domain: str = Form(...), file: UploadFile = File(...)):
+    """A real Gemini vision call reads an uploaded architecture sketch/photo and proposes a
+    structured draft -- never written to contracts/ here. The Control Room only applies it to
+    the (unsaved) form; a human still has to click Save."""
+    _check_domain(request, domain)
+    if not (file.content_type or "").startswith("image/"):
+        raise HTTPException(status_code=400, detail="only image files are accepted")
+    content = await file.read()
+    try:
+        return architecture.interpret_architecture_image(content, file.content_type)
+    except Exception as exc:  # noqa: BLE001 -- surface the real error (bad key, unreadable image, ...)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @app.get("/api/test-pack")
 def api_test_pack(request: Request, domain: str = pipeline.DEFAULT_DOMAIN, target: str = "duckdb"):
     """Runs the real per-layer (3A/3B/3C) test pack for this domain -- see

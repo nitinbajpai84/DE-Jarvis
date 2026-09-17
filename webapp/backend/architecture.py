@@ -33,3 +33,7 @@ def check_consistency(domain: str, workbook_path: str) -> dict[str, Any]:
         return {"ok": False, "errors": errors}
     compiled = intake_compiler.spec_to_contracts(spec)
     return architecture_mod.check_consistency(domain, spec, compiled["model"])
+
+
+def interpret_architecture_image(image_bytes: bytes, mime_type: str) -> dict[str, Any]:
+    return architecture_mod.interpret_architecture_image(image_bytes, mime_type)

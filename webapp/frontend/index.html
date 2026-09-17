@@ -270,6 +270,19 @@
   .intent-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
   @media (max-width:640px){.intent-row{grid-template-columns:1fr;}}
   .intent-help{font-size:10.5px;color:var(--text-muted);margin-top:-2px;}
+  .diagram-tabs{display:flex;gap:8px;}
+  .diagram-tabs .btn.active{background:rgba(47,224,198,.1);border-color:var(--accent);color:var(--text-primary);}
+  .diagram-svg-wrap{overflow-x:auto;background:var(--bg-panel-2);border:1px solid var(--border-soft);border-radius:10px;padding:14px;}
+  .ll-card{border:1px solid var(--border-soft);border-radius:10px;padding:13px 15px;background:var(--bg-panel-2);margin-bottom:10px;}
+  .ll-card:last-child{margin-bottom:0;}
+  .ll-top{display:flex;align-items:center;gap:9px;margin-bottom:8px;}
+  .ll-kind{font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:2px 8px;border-radius:20px;}
+  .ll-kind.dimension{background:rgba(155,127,232,.15);color:#9B7FE8;}
+  .ll-kind.fact{background:rgba(207,138,78,.15);color:var(--warning);}
+  .ll-name{font-family:'IBM Plex Mono';font-weight:600;font-size:13px;}
+  .ll-cols{font-size:11.5px;color:var(--text-secondary);font-family:'IBM Plex Mono';display:flex;flex-wrap:wrap;gap:6px 16px;}
+  .ll-fk{margin-top:8px;font-size:11px;color:var(--text-muted);}
+  .ll-fk b{color:var(--accent);font-family:'IBM Plex Mono';}
   .intent-tabs{display:flex;flex-wrap:wrap;gap:8px;}
   .intent-tab{display:flex;align-items:center;gap:7px;padding:7px 12px;border-radius:20px;
              background:var(--bg-panel-2);border:1px solid var(--border);cursor:pointer;
@@ -831,6 +844,24 @@ dim_awm_portfolio | scd1"></textarea></label>
       <div id="archIssues" style="margin-top:11px;"></div>
     </div>
     <div class="panel">
+      <div class="panel-head"><h3>Architecture diagrams</h3>
+        <span class="note">Auto-generated from ${esc(currentDomain)}'s own real contracts — never hand-drawn, always accurate</span></div>
+      <div class="diagram-tabs">
+        <button class="btn ghost active" id="diagTabHigh" onclick="switchDiagramLevel('high')">High-level</button>
+        <button class="btn ghost" id="diagTabLow" onclick="switchDiagramLevel('low')">Low-level</button>
+      </div>
+      <div id="diagramHost" style="margin-top:12px;"><div class="empty-note">Loading…</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Upload an architecture sketch</h3>
+        <span class="note">A photo or diagram of the intended architecture — a Gemini vision call reads it and proposes a structured summary for you to review, never auto-applied</span></div>
+      <div class="conn-actions" style="margin-top:0;">
+        <input type="file" id="archImageInput" accept="image/*" style="display:none;" onchange="uploadArchitectureImage()">
+        <button class="btn primary" onclick="document.getElementById('archImageInput').click()">Upload a picture</button>
+      </div>
+      <div id="archImageResult" style="margin-top:11px;"></div>
+    </div>
+    <div class="panel">
       <div class="panel-head"><h3>Contract intake</h3>
         <span class="note">Runs the real compiler in preview — nothing writes until a gate is approved</span></div>
       <div class="dropzone" id="dropzone">
@@ -919,7 +950,7 @@ dim_awm_portfolio | scd1"></textarea></label>
 
   if (s.id === 'catalogue') {
     wireDropzone(); loadUploads();
-    loadIntentForm(); loadArchitectureForm();
+    loadIntentForm(); loadArchitectureForm(); loadDiagram();
     if (o.intent_captured) runGapAnalysisUI();
   }
   if (s.id === 'build') { refreshFlow(); loadAgentRuns(); }
@@ -1467,6 +1498,135 @@ async function checkArchitectureUI(){
   }
 }
 window.checkArchitectureUI = checkArchitectureUI;
+
+/* ============================== architecture diagrams (step 02) ============================== */
+let currentDiagramLevel = 'high';
+const DIAGRAM_LAYER_COLOR = {source: '#8792A3', bronze: '#CF8A4E', silver: '#9B7FE8', gold: '#F0C15A'};
+
+function renderHighLevelSvg(d){
+  const layers = ['source', 'bronze', 'silver', 'gold'];
+  const layerLabel = {source: 'Source', bronze: 'Bronze', silver: 'Silver', gold: 'Gold'};
+  const colW = 190, rowH = 34, padTop = 30, padX = 16;
+  const byLayer = {}; layers.forEach(l => byLayer[l] = d.nodes.filter(n => n.layer === l));
+  const maxRows = Math.max(1, ...layers.map(l => byLayer[l].length));
+  const width = padX*2 + colW*layers.length;
+  const height = padTop + rowH*maxRows + 30;
+  const pos = {};
+  layers.forEach((l, ci) => {
+    byLayer[l].forEach((n, ri) => {
+      pos[n.id] = {x: padX + ci*colW, y: padTop + ri*rowH, layer: l};
+    });
+  });
+  let svg = `<svg viewBox="0 0 ${width} ${Math.max(height,200)}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:'IBM Plex Mono',monospace;">`;
+  layers.forEach((l, ci) => {
+    svg += `<text x="${padX + ci*colW + 78}" y="18" fill="${DIAGRAM_LAYER_COLOR[l]}" font-size="10.5" font-weight="700" text-anchor="middle" letter-spacing="1">${layerLabel[l].toUpperCase()} (${d.counts[l]})</text>`;
+  });
+  d.edges.forEach(e => {
+    const a = pos[e.from], b = pos[e.to];
+    if (!a || !b) return;
+    const x1 = a.x + 156, y1 = a.y + 12, x2 = b.x, y2 = b.y + 12;
+    const mx = (x1+x2)/2;
+    svg += `<path d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}" stroke="#2A3342" stroke-width="1.2" fill="none"/>`;
+  });
+  d.nodes.forEach(n => {
+    const p = pos[n.id]; if (!p) return;
+    const color = DIAGRAM_LAYER_COLOR[n.layer];
+    svg += `<g><rect x="${p.x}" y="${p.y}" width="156" height="24" rx="6" fill="#161C26" stroke="${color}" stroke-opacity="0.55"/>
+      <text x="${p.x+9}" y="${p.y+16}" fill="#E8ECF2" font-size="10.5">${escSvg(n.label)}</text></g>`;
+  });
+  svg += `</svg>`;
+  return svg;
+}
+
+function escSvg(s){ return (s||'').toString().replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+function renderLowLevelHtml(d){
+  if (!d.nodes.length) return `<div class="empty-note">No silver dimensions/facts contracted yet for ${esc(currentDomain)}.</div>`;
+  return d.nodes.map(n => {
+    const fks = d.edges.filter(e => e.from === n.id);
+    return `<div class="ll-card">
+      <div class="ll-top"><span class="ll-kind ${esc(n.kind)}">${esc(n.kind)}</span>
+        <span class="ll-name">${esc(n.label)}</span>
+        <span class="empty-note" style="padding:0;margin-left:auto;">${esc(n.type||'')}</span></div>
+      <div class="ll-cols">${(n.columns||[]).map(c => `<span>${esc(c)}</span>`).join('') || '<span>no columns declared</span>'}</div>
+      ${fks.length ? `<div class="ll-fk">→ ${fks.map(f => `<b>${esc(f.to)}</b>${f.label ? ' on ' + esc(f.label) : ''}`).join(', ')}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function loadDiagram(){
+  const host = document.getElementById('diagramHost'); if (!host) return;
+  host.innerHTML = `<div class="empty-note">Loading…</div>`;
+  try {
+    const r = await api(`/api/architecture/diagram?domain=${encodeURIComponent(currentDomain)}&level=${currentDiagramLevel}`);
+    const d = await r.json();
+    if (currentDiagramLevel === 'high') {
+      host.innerHTML = d.nodes.length
+        ? `<div class="diagram-svg-wrap">${renderHighLevelSvg(d)}</div>`
+        : `<div class="empty-note">No contracted sources yet for ${esc(currentDomain)}.</div>`;
+    } else {
+      host.innerHTML = renderLowLevelHtml(d);
+    }
+  } catch (e) {
+    host.innerHTML = `<div class="empty-note">Could not load diagram: ${esc(e.message)}</div>`;
+  }
+}
+window.loadDiagram = loadDiagram;
+
+function switchDiagramLevel(level){
+  currentDiagramLevel = level;
+  document.getElementById('diagTabHigh').classList.toggle('active', level === 'high');
+  document.getElementById('diagTabLow').classList.toggle('active', level === 'low');
+  loadDiagram();
+}
+window.switchDiagramLevel = switchDiagramLevel;
+
+async function uploadArchitectureImage(){
+  const input = document.getElementById('archImageInput');
+  const file = input.files[0]; if (!file) return;
+  const el = document.getElementById('archImageResult');
+  el.innerHTML = `<div class="conn-result">Reading the image…</div>`;
+  try {
+    const fd = new FormData();
+    fd.append('domain', currentDomain);
+    fd.append('file', file);
+    const r = await api('/api/architecture/interpret-image', {method:'POST', body: fd});
+    const j = await r.json();
+    if (!r.ok) { el.innerHTML = `<div class="conn-result bad">✕ ${esc(j.detail || 'could not read the image')}</div>`; return; }
+    el.innerHTML = `<div class="conn-result ok">Read the image — review below, nothing has been saved yet</div>
+      <div class="ll-card" style="margin-top:10px;">
+        <div class="ll-cols" style="flex-direction:column;gap:8px;">${archImageSummaryHtml(j)}</div>
+        <div class="conn-actions" style="margin-top:12px;">
+          <button class="btn primary" onclick='applyArchImageSuggestion(${JSON.stringify(JSON.stringify(j.suggested_architecture||{}))})'>Apply to the form above</button>
+        </div>
+      </div>`;
+  } catch (e) {
+    el.innerHTML = `<div class="conn-result bad">✕ ${esc(e.message)}</div>`;
+  } finally {
+    input.value = '';
+  }
+}
+window.uploadArchitectureImage = uploadArchitectureImage;
+
+function archImageSummaryHtml(j){
+  const rows = [];
+  rows.push(`<div><b style="color:var(--text-primary);">What the image shows:</b> ${esc(j.description || '(no description)')}</div>`);
+  const sa = j.suggested_architecture || {};
+  if (sa.layering_rationale) rows.push(`<div><b>Layering:</b> ${esc(sa.layering_rationale)}</div>`);
+  if ((sa.entity_scd||[]).length) rows.push(`<div><b>Entities seen:</b> ${sa.entity_scd.map(e=>esc(e.entity)).join(', ')}</div>`);
+  return rows.join('');
+}
+
+function applyArchImageSuggestion(jsonStr){
+  const sa = JSON.parse(jsonStr);
+  if (sa.rto) document.getElementById('archRto').value = sa.rto;
+  if (sa.rpo) document.getElementById('archRpo').value = sa.rpo;
+  if (sa.layering_rationale) document.getElementById('archRationale').value = sa.layering_rationale;
+  if (sa.volume_expectations) document.getElementById('archVolume').value = sa.volume_expectations;
+  if ((sa.entity_scd||[]).length) document.getElementById('archScd').value = formatPipeLines(sa.entity_scd, ['entity','scd_type']);
+  document.getElementById('archImageResult').innerHTML += `<div class="conn-result ok" style="margin-top:8px;">Applied to the form — review and click "Save architecture" to persist.</div>`;
+}
+window.applyArchImageSuggestion = applyArchImageSuggestion;
 
 /* ============================== test pack (step 04) ============================== */
 function testPackLayerHtml(layer, cases){
