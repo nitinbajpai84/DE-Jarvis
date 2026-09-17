@@ -379,8 +379,10 @@ def _tier3_relationships(con, control: str, scan_id: str, max_pairs: int = 200) 
         try:
             child_n, resolved = con.execute(
                 f'with c as (select distinct "{cc}" as v from {schema}.{ct} where "{cc}" is not null) '
-                f'select (select count(*) from c), '
-                f'(select count(*) from c where v in (select "{pc}" from {schema}.{pt}))'
+                # both columns aliased: unnamed they come back as two identically-named fields,
+                # which the Railway image's Arrow rejects outright ("duplicate field names")
+                f'select (select count(*) from c) as child_n, '
+                f'(select count(*) from c where v in (select "{pc}" from {schema}.{pt})) as resolved'
             ).fetchone()
         except Exception as exc:  # noqa: BLE001 -- no relationship claimed, but the failure is counted
             failed += 1
