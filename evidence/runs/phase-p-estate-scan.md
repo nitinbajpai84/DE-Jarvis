@@ -63,9 +63,30 @@ Other checks through the API on a local server:
 
 Regression: `pytest tests/ -q --target duckdb` → 49 passed; `--target databricks` → 49 passed.
 
+## Found in live testing (Railway → Databricks) and fixed
+
+1. **Railway's DuckDB is empty.** A scan there reported "tier 3, 0 tables" with no note, which reads as a clean estate. An empty census now stops at tier 1 with a note saying nothing has been loaded yet.
+2. **Timestamps were off by the machine's timezone.** DuckDB stored the aware datetime as local time (SGT) and Databricks stored UTC, so a 20-minute-old scan showed as "8h ago". Timestamps are now stored naive UTC and returned with `Z`.
+3. **Tier 3 found 0 references on Railway but 56 from a laptop, for the same estate.**
+   - *Hidden by:* every failed containment query was swallowed, so the report said "no references found".
+   - *Now:* failures are counted into the scan note, and tier 3 is not claimed if every check failed. The first live run with this change reported `56 of 56 reference checks failed; last: ArrowInvalid: Can't unify schema with duplicate field names.`
+   - *Root cause:* the query returned two unaliased `count(*)` columns. The Railway image installs the unpinned `requirements.txt`, and its Arrow rejects duplicate field names.
+   - *Fix:* both columns are aliased.
+
+Final live results:
+
+| Scan | Tiers | Time | Result |
+|---|---|---|---|
+| Star Insurance, `insurance` on Databricks | 4 | 2 min 26 s | 48 tables, 12 intact / 16 orphans, 24 identical mirrors, 16 sensitive, 14 questions — identical to the local run |
+| Star Investments, `asset_management` on Databricks | 3 | — | 7 own tables plus the 3 legacy unclassified schemas, 4 intact references, 3 questions |
+
+- Star Investments requesting the insurance report or starting an insurance scan gets HTTP 403.
+- The scan orphaned when the pre-fix Databricks run was stopped now shows `failed · interrupted`.
+
 ## Honest limits
 
 - Row counts use `count(*)` per table. That suits this deployment's scale. A 40,000-table estate should read the catalogue's own statistics instead.
 - Tier 3 only matches columns with the same name within one schema, and only id-like columns.
 - Tier 4's descriptions are suggestions attached to evidence. They are never written into a contract.
+- **Open tenancy question.** The legacy `bronze`, `silver` and `gold` schemas belong to no domain, so they appear in *both* tenants' scans. Star Investments sees their table names, row counts and column profiles, even though the content is insurance data. The sensitivity register and relationships are limited to domain-owned schemas, but coverage and mirrors are not. Whether unclassified estate should be visible to every tenant, only to admins, or be assigned an owner is a product decision; it has not been made here.
 - The abandoned-scan cleanup assumes the web process is the only thing running scans for a (domain, target). A CLI scan running at the same moment against the same target would be closed wrongly.
