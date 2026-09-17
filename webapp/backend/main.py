@@ -516,6 +516,32 @@ def api_agent_chat(request: Request, slug: str, body: AgentChatRequest):
         raise HTTPException(status_code=502, detail=f"The agent couldn't answer: {type(exc).__name__}: {str(exc)[:300]}") from exc
 
 
+@app.get("/api/proposals")
+def api_proposals(request: Request, domain: str = pipeline.DEFAULT_DOMAIN, status: str | None = None):
+    """Changes the agents have proposed for this company, newest first."""
+    _check_domain(request, domain)
+    from emitters.proposals import STATUSES, list_proposals
+    if status and status not in STATUSES:
+        raise HTTPException(status_code=400, detail=f"status must be one of {', '.join(STATUSES)}")
+    return {"domain": domain, "proposals": list_proposals(domain, status)}
+
+
+@app.post("/api/proposals/{proposal_id}/decide")
+def api_proposal_decide(request: Request, proposal_id: str, domain: str = Form(...), decision: str = Form(...),
+                        note: str = Form("")):
+    """Approve runs the change under this login's name and scope; decline records why and tells
+    the agent that proposed it."""
+    _check_domain(request, domain)
+    from emitters.proposals import decide
+    try:
+        return decide(domain, proposal_id, decision, _username(request), note,
+                      approver_is_admin=_sees_unclassified(request))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409 if "already" in str(exc) else 400, detail=str(exc)) from exc
+
+
 @app.get("/api/memory")
 def api_memory_list(request: Request, domain: str = pipeline.DEFAULT_DOMAIN, agent: str | None = None,
                     target: str = "duckdb"):

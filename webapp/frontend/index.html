@@ -531,6 +531,28 @@
   .kind-chip.correction{background:var(--critical-soft);color:var(--critical);}
   .kind-chip.preference{background:var(--violet-soft);color:var(--violet);}
   @media (max-width:560px){.team-drawer{padding-left:16px;padding-right:16px;}}
+  .team-badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;margin-left:7px;border-radius:9px;
+    background:var(--warning);color:#fff;font-family:'IBM Plex Mono';font-size:10px;font-weight:600;vertical-align:1px;}
+  .team-badge[hidden]{display:none;}
+  .prop-card{border:1px solid var(--gold-line);background:var(--gold-soft);border-radius:11px;padding:10px 12px;margin:2px 0 6px;
+    display:flex;flex-direction:column;gap:6px;font-size:12.5px;}
+  .prop-card.decided{background:var(--bg-panel-2);border-color:var(--border-soft);}
+  .prop-card.inline{align-self:flex-start;max-width:94%;}
+  .prop-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .prop-head b{color:var(--text-primary);font-size:13px;}
+  .prop-kind{font-family:'IBM Plex Mono';font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);}
+  .prop-do{color:var(--text-primary);line-height:1.45;}
+  .prop-do::before{content:'If approved: ';font-weight:600;}
+  .prop-why{color:var(--text-secondary);line-height:1.45;}
+  .prop-meta{font-size:10.5px;color:var(--text-muted);}
+  .prop-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+  .prop-actions input{flex:1;min-width:160px;background:var(--bg-panel);border:1px solid var(--border);border-radius:8px;
+    padding:6px 9px;font:inherit;font-size:12px;color:var(--text-primary);}
+  .prop-status{font-family:'IBM Plex Mono';font-size:9.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:20px;}
+  .prop-status.proposed{background:var(--warning-soft);color:var(--warning);}
+  .prop-status.approved{background:var(--good-soft);color:var(--good);}
+  .prop-status.declined{background:var(--bg-raised);color:var(--text-secondary);}
+  .prop-status.failed{background:var(--critical-soft);color:var(--critical);}
   .diagram-tabs{display:flex;gap:8px;}
   .diagram-tabs .btn.active{background:var(--accent-soft);border-color:var(--accent);color:var(--text-primary);}
   .diagram-svg-wrap{overflow-x:auto;background:var(--bg-panel-2);border:1px solid var(--border-soft);border-radius:10px;padding:14px;}
@@ -710,7 +732,7 @@
     <select id="domain"></select>
     <select id="target"></select>
     <div class="conn-pills" id="connPills"></div>
-    <button class="btn primary" id="teamBtn" onclick="openTeam()" aria-controls="teamDrawer" aria-expanded="false">Talk to the team</button>
+    <button class="btn primary" id="teamBtn" onclick="openTeam()" aria-controls="teamDrawer" aria-expanded="false">Talk to the team<span class="team-badge" id="teamBadge" hidden></span></button>
     <button class="btn ghost" id="logoutBtn" style="display:none;" onclick="doLogout()">Sign out</button>
   </div>
 </div>
@@ -736,6 +758,7 @@
     <button class="on" data-tt="chat" onclick="switchTeamTab('chat')">Conversation</button>
     <button data-tt="sees" onclick="switchTeamTab('sees')">What it sees</button>
     <button data-tt="remembers" onclick="switchTeamTab('remembers')">What it remembers</button>
+    <button data-tt="approvals" onclick="switchTeamTab('approvals')">Approvals<span class="team-badge" id="approvalsBadge" hidden></span></button>
   </div>
   <div class="team-body">
     <section data-tp="chat">
@@ -752,6 +775,7 @@
     </section>
     <section data-tp="sees" hidden><div id="teamSees" class="team-sees"></div></section>
     <section data-tp="remembers" hidden><div id="teamRemembers"></div></section>
+    <section data-tp="approvals" hidden><div id="teamApprovals"></div></section>
   </div>
 </aside>
 
@@ -774,6 +798,8 @@ let currentStep   = 1;          // land on Discovery: knowing the estate is the 
 let currentDiscoveryTab = 'estate';   // survives re-renders: reloadJourney() rebuilds the whole screen
 let journeyData   = null;
 let pendingRuns   = [];
+let pendingProposals = [];   // agent proposals waiting for this company's approval
+let allProposals = [];
 
 /* ============================== API base + auth ============================== */
 // Same file serves two ways: the FastAPI backend hands it out directly at "/" (same-origin --
@@ -884,6 +910,7 @@ async function reloadJourney(){
   }
   renderRail();
   renderScreen();
+  loadProposals();
 }
 
 function gateStateFor(gate){
@@ -929,8 +956,13 @@ async function refreshJourneyDataQuietly(){
 function renderAttention(){
   const el = document.getElementById('attention');
   const awaiting = pendingRuns.filter(r => r.status === 'awaiting_approval');
-  if (!awaiting.length) { el.innerHTML = ''; return; }
-  el.innerHTML = awaiting.map(run => {
+  const waitingProposals = pendingProposals.length ? `<div class="attn">
+      <span class="lbl">✋ Proposed by the team</span>
+      <span class="tx"><b>${pendingProposals.length} change${pendingProposals.length === 1 ? '' : 's'}</b> for ${esc(currentDomain)} waiting for your approval — nothing happens until you decide.</span>
+      <button class="btn primary" onclick="openApprovals()">Review</button>
+    </div>` : '';
+  if (!awaiting.length) { el.innerHTML = waitingProposals; return; }
+  el.innerHTML = waitingProposals + awaiting.map(run => {
     const g = run.pending_action && run.pending_action.gate;
     const label = g ? `${g.id} · ${g.name}` : 'Approval needed';
     const what = g ? g.approves : 'The agent is paused waiting for a decision.';
@@ -2685,6 +2717,7 @@ async function openTeam(slug){
   if (!SPEECH_RECOGNITION) document.getElementById('chatMic-team').hidden = true;
   if (teamState.domain && teamState.domain !== currentDomain) teamState.sessionId = null;   // conversations belong to one company
   teamState.domain = currentDomain;
+  loadProposals();
   if (!teamState.agents.length) {
     try {
       const r = await api('/api/agents');
@@ -2725,9 +2758,101 @@ function switchTeamTab(tab){
   teamState.tab = tab;
   document.querySelectorAll('.team-tabs button').forEach(b => b.classList.toggle('on', b.dataset.tt === tab));
   document.querySelectorAll('.team-body section').forEach(sec => { sec.hidden = sec.dataset.tp !== tab; });
+  document.getElementById('teamCard').hidden = tab === 'approvals';
+  document.getElementById('teamAgents').hidden = tab === 'approvals';
   if (tab === 'sees') loadTeamSees();
   if (tab === 'remembers') loadTeamRemembers();
+  if (tab === 'approvals') renderApprovals();
 }
+
+/* ------------------------------ proposals & approvals ------------------------------ */
+// pendingProposals / allProposals are declared with the other page state at the top
+
+
+async function loadProposals(){
+  try {
+    const r = await api(`/api/proposals?domain=${encodeURIComponent(currentDomain)}`);
+    if (!r.ok) return;
+    allProposals = (await r.json()).proposals;
+    pendingProposals = allProposals.filter(p => p.status === 'proposed');
+  } catch { return; }
+  for (const id of ['teamBadge', 'approvalsBadge']) {
+    const b = document.getElementById(id);
+    if (!b) continue;
+    b.textContent = pendingProposals.length;
+    b.hidden = !pendingProposals.length;
+  }
+  renderAttention();
+  if (teamState.tab === 'approvals' && !document.getElementById('teamDrawer').hidden) renderApprovals();
+}
+window.loadProposals = loadProposals;
+
+async function openApprovals(){
+  await openTeam();
+  switchTeamTab('approvals');
+}
+window.openApprovals = openApprovals;
+
+function personaOf(slug){
+  const a = teamState.agents.find(x => x.slug === slug);
+  return a ? a.persona : slug;
+}
+
+function proposalCardHtml(p, inline){
+  const decided = p.status !== 'proposed';
+  const evidence = (p.evidence || []).map(e => `<span class="cite" style="font-family:'IBM Plex Mono';font-size:10px;background:var(--accent-soft);color:var(--accent-ink);padding:0 4px;border-radius:4px;">${esc(e)}</span>`).join(' ');
+  let outcome = '';
+  if (decided) {
+    const res = p.result && p.result.error ? ` — ${esc(p.result.error)}` : '';
+    outcome = `<div class="prop-meta">${esc(p.status)} by ${esc(p.decided_by || '')} · ${timeAgo(p.decided_at)}${p.decision_note ? ' — “' + esc(p.decision_note) + '”' : ''}${res}</div>`;
+  }
+  return `<div class="prop-card ${decided ? 'decided' : ''} ${inline ? 'inline' : ''}" id="prop-${esc(p.proposal_id)}${inline ? '-inline' : ''}">
+    <div class="prop-head"><span class="prop-status ${esc(p.status)}">${esc(p.status === 'proposed' ? 'awaiting approval' : p.status)}</span>
+      <b>${esc(p.title)}</b><span class="prop-kind">${esc(p.kind_label || p.kind)}</span></div>
+    <div class="prop-do">${esc(p.preview)}</div>
+    <div class="prop-why">${agentTextHtml(p.rationale)}</div>
+    <div class="prop-meta">Proposed by ${esc(personaOf(p.agent))} · ${timeAgo(p.proposed_at)}${evidence ? ' · relies on ' + evidence : ''}</div>
+    ${decided ? outcome : `<div class="prop-actions">
+      <input id="propNote-${esc(p.proposal_id)}${inline ? '-i' : ''}" placeholder="Note (required to decline)" aria-label="Decision note">
+      <button class="btn primary sm" onclick="decideProposal('${esc(p.proposal_id)}', 'approve', ${inline ? 'true' : 'false'})">Approve</button>
+      <button class="btn reject sm" onclick="decideProposal('${esc(p.proposal_id)}', 'decline', ${inline ? 'true' : 'false'})">Decline</button>
+    </div><div class="prop-meta" id="propResult-${esc(p.proposal_id)}${inline ? '-i' : ''}"></div>`}
+  </div>`;
+}
+
+function renderApprovals(){
+  const host = document.getElementById('teamApprovals');
+  if (!host) return;
+  const waiting = allProposals.filter(p => p.status === 'proposed');
+  const decided = allProposals.filter(p => p.status !== 'proposed').slice(0, 15);
+  host.innerHTML = `<div class="rv-note" style="margin-bottom:8px;">Agents can't change anything themselves. What they think should change lands here; approving runs it under your name, declining tells the agent why.</div>
+    <div class="rv-sec"><h4>Waiting · ${waiting.length}</h4>${waiting.map(p => proposalCardHtml(p, false)).join('') || '<div class="rv-note">Nothing waiting.</div>'}</div>
+    <div class="rv-sec"><h4>Decided</h4>${decided.map(p => proposalCardHtml(p, false)).join('') || '<div class="rv-note">No decisions yet.</div>'}</div>`;
+}
+
+async function decideProposal(id, decision, inline){
+  const suffix = inline ? '-i' : '';
+  const note = (document.getElementById(`propNote-${id}${suffix}`) || {}).value || '';
+  const out = document.getElementById(`propResult-${id}${suffix}`);
+  if (out) out.textContent = decision === 'approve' ? 'Applying…' : 'Declining…';
+  const fd = new FormData();
+  fd.append('domain', currentDomain); fd.append('decision', decision); fd.append('note', note);
+  try {
+    const r = await api(`/api/proposals/${encodeURIComponent(id)}/decide`, {method: 'POST', body: fd});
+    const p = await r.json();
+    if (!r.ok) throw new Error(p.detail || r.statusText);
+    const card = document.getElementById(`prop-${id}${inline ? '-inline' : ''}`);
+    if (card) card.outerHTML = proposalCardHtml(p, inline);
+    await loadProposals();
+    // what the change touched may be on screen: refresh the rail quietly, and the screen if nothing is mid-edit
+    refreshJourneyDataQuietly();
+    if (p.status === 'approved' && ['add_intent_data_points', 'update_architecture'].includes(p.kind) && currentStep === 2) renderScreen();
+    if (p.status === 'approved' && p.kind === 'run_estate_scan' && typeof loadEstate === 'function') { loadEstate(); scheduleEstatePoll(); }
+  } catch (e) {
+    if (out) out.textContent = '✕ ' + e.message;
+  }
+}
+window.decideProposal = decideProposal;
 window.switchTeamTab = switchTeamTab;
 
 async function loadTeamSessions(){
@@ -2751,7 +2876,10 @@ async function selectTeamSession(sid){
     const r = await api(`/api/agents/${teamState.slug}/sessions/${encodeURIComponent(sid)}?domain=${encodeURIComponent(currentDomain)}`);
     const j = await r.json();
     if (!r.ok) throw new Error(j.detail || r.statusText);
-    log.innerHTML = j.messages.map(m => teamBubbleHtml(m.role, m.content) + (m.trace ? traceHtml(m.trace) : '')).join('');
+    await loadProposals();
+    log.innerHTML = j.messages.map(m => teamBubbleHtml(m.role, m.content) + (m.trace ? traceHtml(m.trace) : '')
+      + ((m.trace && m.trace.proposals) || []).map(tp => allProposals.find(x => x.proposal_id === tp.proposal_id))
+          .filter(Boolean).map(p => proposalCardHtml(p, true)).join('')).join('');
     log.scrollTop = log.scrollHeight;
   } catch (e) {
     log.innerHTML = chatBubbleHtml('assistant', 'Could not open that conversation: ' + e.message);
@@ -2789,6 +2917,7 @@ function traceHtml(t){
   if ((t.tools || []).length) bits.push(`${t.tools.length} tool${t.tools.length === 1 ? '' : 's'}`);
   if ((t.memories_recalled || []).length) bits.push(`${t.memories_recalled.length} recalled`);
   if ((t.memories_saved || []).length) bits.push(`${t.memories_saved.length} remembered`);
+  if ((t.proposals || []).length) bits.push(`${t.proposals.length} proposed`);
   const ctx = (t.context || []).map(c => `<code class="${cited.has(c.id) ? 'cited' : ''}">${esc(c.id)}</code> ${esc(c.title)}${c.ok ? '' : ' (unavailable)'}`).join(' · ');
   const tools = (t.tools || []).map(x => `<code>${esc(x.name)}</code>(${esc(Object.values(x.args || {}).join(', '))}) ${x.ok ? '' : 'failed '}${secs(x.ms)}`).join('<br>') || 'none needed';
   const recalled = (t.memories_recalled || []).map(m => `<code class="${cited.has('M' + m.memory_id) ? 'cited' : ''}">M${m.memory_id}</code> <span class="kind-chip ${esc(m.kind)}">${esc(m.kind)}</span> ${esc(m.subject)} <span class="rv-ver">${m.scope === 'team' ? 'team' : 'own'} · ${m.score}</span>`).join('<br>') || 'nothing relevant';
@@ -2805,6 +2934,7 @@ function traceHtml(t){
     <dt>Tools</dt><dd>${tools}</dd>
     <dt>Recalled</dt><dd>${recalled}</dd>
     <dt>Remembered</dt><dd>${saved}</dd>
+    ${(t.proposals || []).length ? `<dt>Proposed</dt><dd>${t.proposals.map(p => esc(p.title)).join('<br>')}</dd>` : ''}
     ${(t.errors || []).length ? `<dt>Problems</dt><dd>${t.errors.map(esc).join('<br>')}</dd>` : ''}
   </dl></details>`;
 }
@@ -2831,6 +2961,13 @@ async function sendTeamMessage(){
     if (!r.ok) throw new Error(j.detail || r.statusText);
     teamState.sessionId = j.session_id;
     log.insertAdjacentHTML('beforeend', teamBubbleHtml('assistant', j.reply) + traceHtml(j.trace));
+    if ((j.trace.proposals || []).length) {
+      await loadProposals();
+      for (const tp of j.trace.proposals) {
+        const p = allProposals.find(x => x.proposal_id === tp.proposal_id);
+        if (p) log.insertAdjacentHTML('beforeend', proposalCardHtml(p, true));
+      }
+    }
     log.scrollTop = log.scrollHeight;
     loadTeamSessions();
   } catch (e) {

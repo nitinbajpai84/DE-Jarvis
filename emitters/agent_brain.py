@@ -14,10 +14,10 @@ at most) -> store both messages -> ask the model which durable memories, if any,
 produced, and keep the ones that aren't already known -> fold old turns into the summary once
 the conversation is long. Every one of those steps lands in the trace returned with the reply.
 
-What an agent cannot do here is change anything. Its tools read; approvals and writes stay with
-the humans and the gated agent runs (agents_loader.py). An agent that answers from records it can
-cite, says when it doesn't know, and remembers what it was told is the point of this layer --
-not an agent that acts on its own.
+An agent cannot change anything directly. Its lookups read; the one tool that leads to a change,
+propose_change, files a typed proposal (emitters/proposals.py) that does nothing until a person
+approves it -- and then runs through the same functions the Control Room's buttons call, under
+that person's name.
 """
 from __future__ import annotations
 
@@ -133,6 +133,7 @@ TOOL_DOCS = [
     ("search_estate_columns", "Find columns in the latest estate scan whose name contains some text."),
     ("get_source_profile", "The live discovery profile of one source: columns, types, empty values, keys, review state."),
     ("recall_memories", "Search this agent's long-term memory about the company for something specific."),
+    ("propose_change", "File a change for a person to approve: add data points to an intent, update the architecture, run a scan, accept or reject a source version, assign a ticket, or a recommendation."),
 ]
 
 
@@ -207,7 +208,36 @@ def _tools(domain: str, agent: str, target: str, wide: bool, trace: dict[str, An
         return json.dumps([{k: h[k] for k in ("memory_id", "kind", "subject", "content", "score")} for h in hits], default=str) \
             if hits else "Nothing remembered about that."
 
-    return [get_gap_report, get_estate_findings, search_estate_columns, get_source_profile, recall_memories]
+    @tool
+    def propose_change(kind: str, title: str, rationale: str, params_json: str = "{}", evidence: str = "") -> str:
+        """File a proposed change for a person to approve. Nothing happens until they approve it.
+        kind and its params (params_json is a JSON object):
+          add_intent_data_points: {"intent_id": existing id OR "name": new intent name, "report": str, "data_points": [str], "description"?: str}
+          update_architecture: any of {"rto","rpo","platform_binding","layering_rationale","volume_expectations"} and/or {"entity","scd_type"} and/or {"add_risk","mitigation"}
+          run_estate_scan: {"target"?: "duckdb"|"databricks", "tiers"?: 1-4}
+          review_source_version: {"source_id": str, "version": int, "decision": "accept"|"reject", "comment": str (required to reject)}
+          assign_ticket: {"ticket_id": int, "assigned_to": str}
+          recommendation: {"owner"?: agent or role, "steps"?: [str]} -- for anything else; approving only records agreement
+        title: a short imperative, e.g. "Add loss_date to Claims by month".
+        rationale: one or two sentences on why, grounded in the context.
+        evidence: comma-separated ids you are relying on, e.g. "G1,E1,M3"."""
+        from emitters import proposals
+        try:
+            params = json.loads(params_json or "{}")
+            if not isinstance(params, dict):
+                raise ValueError("params_json must be a JSON object")
+            p = proposals.propose(domain, target, agent, kind, title, rationale, params,
+                                  evidence=[e.strip() for e in evidence.split(",") if e.strip()],
+                                  session_id=trace.get("session_id"))
+        except (ValueError, json.JSONDecodeError) as exc:
+            return f"Not filed: {exc}. Fix the parameters and try again, or explain in words instead."
+        trace.setdefault("proposals", []).append({"proposal_id": p["proposal_id"], "kind": p["kind"],
+                                                  "title": p["title"], "preview": p["preview"]})
+        return json.dumps({"filed": True, "proposal_id": p["proposal_id"], "will_do": p["preview"],
+                           "status": "waiting for a person to approve"})
+
+    return [get_gap_report, get_estate_findings, search_estate_columns, get_source_profile, recall_memories,
+            propose_change]
 
 
 # --------------------------------------------------------------------------- prompts
@@ -216,7 +246,10 @@ def _system_prompt(a: dict[str, Any], domain: str, summary: str | None, memories
                    context_items: list[dict[str, Any]]) -> str:
     mem = "\n".join(f"- [M{m['memory_id']}] ({m['kind']}, {m.get('scope', 'agent')}) {m['subject']}: {m['content']}" for m in memories) \
         or "(nothing relevant remembered yet)"
-    return f"""You are {a['persona']}, the {a['role']} on the Foundation First data platform team, talking with someone from the company whose data domain is "{domain}".
+    # today's date is stated: without it a real run called a scan finished that morning "from the future"
+    import datetime as _dt
+    today = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return f"""You are {a['persona']}, the {a['role']} on the Foundation First data platform team, talking with someone from the company whose data domain is "{domain}". It is now {today}.
 What you're for: {a['purpose']}
 
 Your working principles, from your role charter. In this conversation you advise and look things up; you do not write files, change contracts or approve anything:
@@ -228,7 +261,9 @@ How to answer:
 - Use the tools when the context summary isn't detailed enough.
 - MEMORY is what you learned in earlier conversations. When it disagrees with the CONTEXT, trust the context and point out the difference.
 - If something is another agent's job, say which agent.
-- When the person tells you a fact, a decision, a preference or a correction, acknowledge it and say you'll remember it -- you will. Never say you have written, updated or captured a document, requirement or contract; you can't.
+- When the person tells you a fact, a decision, a preference or a correction, acknowledge it and say you'll remember it -- you will.
+- You can't change anything yourself. When something should change -- and the person asks for it, or it clearly follows from what you found -- file it with propose_change, then tell them what you proposed and that it's waiting for their approval under Approvals. Propose one concrete change at a time, only with parameters you can ground in the context; never claim a change has been made.
+- If a tool refuses your parameters, correct them from the context and try once more without commentary. Never narrate your reasoning, retries or tool errors to the person; tell them the outcome in a sentence or two.
 - Be concise and conversational: plain text, short paragraphs, or a short list with "- ". No markdown bold or headings, no numbered requirement IDs.
 
 CONVERSATION SO FAR (summary of earlier turns): {summary or '(this is the start, or everything is still in the recent messages)'}
@@ -246,7 +281,7 @@ From the exchange below, pick out at most 3 things worth remembering in FUTURE c
 - decision: something the person decided or agreed
 - preference: how the person or company wants things done
 - correction: where the person told the agent it was wrong, and what is right instead
-Never remember what the agent said, looked up or found in the platform's records (scan results, gaps, counts) -- those are re-read fresh every time and would go stale in memory. Ignore greetings, questions and anything uncertain. If the person only asked a question, reply [].
+Never remember what the agent said, looked up or found in the platform's records (scan results, gaps, counts) -- those are re-read fresh every time and would go stale in memory. A request for the agent to do, check or propose something is NOT a memory -- proposals record those. Ignore greetings, questions, requests and anything uncertain. If the person only asked or requested, reply []. "content" must restate what the PERSON said, never the agent's reply.
 Already remembered (don't repeat these):
 {known}
 
@@ -261,12 +296,30 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", text.lower())).strip()
 
 
-def _grounded(quote: str, user_message: str) -> bool:
-    """A memory is kept only if its quote really is the person's words. Caught on a real run: the
-    model remembered "no estate scan has been run" -- the agent's own finding, restated as a
-    company fact that would have been wrong the moment anyone ran a scan."""
+_STOP = {"the", "and", "that", "this", "with", "from", "have", "been", "will", "would", "should", "their", "there",
+         "they", "them", "what", "when", "which", "about", "into", "only", "also", "than", "then", "were", "does",
+         "person", "company", "team"}
+
+
+def _words(text: str) -> set[str]:
+    # 5-letter prefixes, so "report" and "reported" count as the same word
+    return {w[:5] for w in _norm(text).split() if len(w) > 3 and w not in _STOP}
+
+
+def _grounded(quote: str, user_message: str, content: str = "") -> bool:
+    """A memory is kept only if it is the person's words, on two counts, both caught on real runs:
+      - the quote must appear in their message: the model remembered "no estate scan has been run",
+        the agent's own finding restated as a company fact;
+      - the content must mostly be made of their words too: the person said "the scan looks old",
+        the agent disagreed, and the model stored the AGENT's claim as a "correction" -- with a
+        genuine quote from the person attached."""
     q = _norm(quote)
-    return len(q) >= 12 and q in _norm(user_message)
+    if len(q) < 12 or q not in _norm(user_message):
+        return False
+    content_words = _words(content)
+    if not content_words:
+        return True
+    return len(content_words & _words(user_message)) / len(content_words) >= 0.5
 
 _SUMMARY_PROMPT = """Update the running summary of a conversation between a person and {persona}.
 Keep what matters for continuing it: questions asked, answers given, decisions, open threads. At most 120 words.
@@ -304,7 +357,8 @@ def ask(domain: str, agent: str, message: str, username: str, session_id: str | 
         raise ValueError("That conversation belongs to a different agent.")
 
     trace: dict[str, Any] = {"agent": a["persona"], "model": DEFAULT_MODEL.split(":", 1)[-1], "timings_ms": {},
-                             "tools": [], "memories_saved": [], "memories_skipped": [], "errors": []}
+                             "tools": [], "memories_saved": [], "memories_skipped": [], "errors": [],
+                             "proposals": [], "session_id": session["session_id"]}
     t0 = time.perf_counter()
 
     def lap(name: str, start: float) -> None:
@@ -374,7 +428,9 @@ def ask(domain: str, agent: str, message: str, username: str, session_id: str | 
     if not reply:
         reply = "I couldn't put an answer together that time. Try asking again, or more narrowly."
     trace["usage"] = usage
-    cited = sorted(set(re.findall(r"\[([A-Z]\d{1,6})(?:[ ,;][^\]]*)?\]", reply)))
+    # every id inside brackets, including several in one: [M4, P1]
+    cited = sorted({i for group in re.findall(r"\[([A-Z]\d{1,6}(?:\s*[,;]\s*[A-Z]\d{1,6})*)[^\]]*\]", reply)
+                    for i in re.findall(r"[A-Z]\d{1,6}", group)})
     # A citation is only worth something if it points at what the agent was actually given. On a
     # real run an agent cited [M1] while saying it remembered nothing -- so every id is checked
     # against the context pack, the recalled memories and the tool results, and any that match
@@ -398,7 +454,7 @@ def ask(domain: str, agent: str, message: str, username: str, session_id: str | 
             subject, content = str(cand.get("subject", "")).strip(), str(cand.get("content", "")).strip()
             if kind not in agent_memory.KINDS or not subject or not content:
                 continue
-            if not _grounded(str(cand.get("quote", "")), message):
+            if not _grounded(str(cand.get("quote", "")), message, content):
                 trace["memories_skipped"].append({"subject": subject, "reason": "not in the person's own words"})
                 continue
             vec = _embed(f"{subject}\n{content}")

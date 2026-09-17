@@ -26,13 +26,13 @@ SECTION_BUDGET = 2400
 PACK_BUDGET = 9000
 
 AGENT_SECTIONS = {
-    "detective": ["sources", "landing", "estate", "gaps", "intents"],
-    "architect": ["architecture", "estate", "gaps", "intents", "sources"],
-    "delivery": ["intents", "gaps", "sources", "architecture", "tickets"],
-    "engineer": ["sources", "landing", "estate", "tickets", "gaps"],
-    "quality": ["gaps", "estate", "tickets", "sources"],
-    "insight": ["intents", "gaps", "estate"],
-    "nightwatch": ["tickets", "landing", "sources", "estate"],
+    "detective": ["sources", "landing", "estate", "gaps", "intents", "proposals"],
+    "architect": ["architecture", "estate", "gaps", "intents", "sources", "proposals"],
+    "delivery": ["proposals", "intents", "gaps", "sources", "architecture", "tickets"],
+    "engineer": ["sources", "landing", "estate", "tickets", "gaps", "proposals"],
+    "quality": ["gaps", "estate", "tickets", "sources", "proposals"],
+    "insight": ["intents", "gaps", "estate", "proposals"],
+    "nightwatch": ["tickets", "landing", "sources", "estate", "proposals"],
 }
 
 
@@ -121,7 +121,9 @@ def _intents(domain: str, target: str, wide: bool) -> tuple[str, str]:
     lines = []
     for it in intents:
         sm = summary(domain, it["intent_id"])
-        lines.append(f"- {it.get('name')} (v{sm['version'] or '?'}, {sm['review_status'] or 'unversioned'}): "
+        # the id is shown because proposals refer to intents by it -- a real run with only the
+        # name visible filed intent_id="ZZ proposal check" and was (rightly) refused
+        lines.append(f"- {it.get('name')} [intent_id {it.get('intent_id')}] (v{sm['version'] or '?'}, {sm['review_status'] or 'unversioned'}): "
                      f"{it.get('business_outcome') or 'no outcome stated'}")
         for rep in it.get("reports") or []:
             lines.append(f"  report {rep.get('name')}: needs {', '.join(rep.get('required_data_points') or []) or 'nothing listed'}")
@@ -157,11 +159,27 @@ def _tickets(domain: str, target: str, wide: bool) -> tuple[str, str]:
     return "Incident tickets", "\n".join(lines)
 
 
+def _proposals(domain: str, target: str, wide: bool) -> tuple[str, str]:
+    """What the team has proposed and what people decided -- so an agent doesn't re-propose a
+    change that is already waiting, or one that was declined without saying what changed."""
+    from emitters.proposals import list_proposals
+    items = list_proposals(domain, limit=20)
+    if not items:
+        return "Proposals", "Nothing proposed yet."
+    lines = []
+    for p in items:
+        decided = f" by {p['decided_by']}" if p.get("decided_by") else ""
+        note = f" -- \u201c{p['decision_note']}\u201d" if p.get("decision_note") else ""
+        lines.append(f"- [{p['status']}{decided}] {p['title']} ({p['kind']}, proposed by {p['agent']}){note}")
+    return "Proposals", "\n".join(lines)
+
+
 _BUILDERS: dict[str, Callable[[str, str, bool], tuple[str, str]]] = {
     "estate": _estate, "gaps": _gaps, "sources": _sources, "landing": _landing,
-    "intents": _intents, "architecture": _architecture, "tickets": _tickets,
+    "intents": _intents, "architecture": _architecture, "tickets": _tickets, "proposals": _proposals,
 }
-_PREFIX = {"estate": "E", "gaps": "G", "sources": "S", "landing": "L", "intents": "I", "architecture": "A", "tickets": "T"}
+_PREFIX = {"estate": "E", "gaps": "G", "sources": "S", "landing": "L", "intents": "I", "architecture": "A",
+           "tickets": "T", "proposals": "P"}
 
 
 def build_context(domain: str, agent: str, target: str = "duckdb", include_unclassified: bool = False,

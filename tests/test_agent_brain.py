@@ -195,9 +195,28 @@ def test_context_pack_budget_and_unreadable_sections(monkeypatch):
     monkeypatch.setitem(agent_context._BUILDERS, "landing", lambda d, t, w: ("Landing zone", "x\n" * 5000))
     monkeypatch.setitem(agent_context._BUILDERS, "sources", lambda d, t, w: ("Sources", "s\n" * 5000))
     monkeypatch.setitem(agent_context._BUILDERS, "estate", lambda d, t, w: ("Estate scan", "e\n" * 5000))
+    monkeypatch.setitem(agent_context._BUILDERS, "proposals", lambda d, t, w: ("Proposals", "nothing"))
     items = agent_context.build_context("insurance", "nightwatch", budget=3000)
     by = {i["section"]: i for i in items}
-    assert [i["section"] for i in items] == ["tickets", "landing", "sources", "estate"]
+    assert [i["section"] for i in items] == ["tickets", "landing", "sources", "estate", "proposals"]
     assert not by["tickets"]["ok"] and "db down" in by["tickets"]["text"]
     assert by["landing"]["text"].endswith("(truncated to fit the context budget)")
     assert "left out" in by["estate"]["text"]            # budget exhausted: said, not silently dropped
+
+
+def test_memory_must_be_the_persons_words_not_the_agents():
+    msg = "The estate scan looks old. Should we refresh it?"
+    # real quote from the person, but the content is the agent's rebuttal
+    assert not agent_brain._grounded("The estate scan looks old", msg,
+                                     "The estate scan date is not old; it appears to be from the future.")
+    assert agent_brain._grounded("we report claims monthly", "Note we report claims monthly.",
+                                 "Claims are reported monthly.")
+    assert not agent_brain._grounded("48 tables", "the estate has 48 tables", "The estate has 48 tables.")   # quote too short
+
+
+def test_several_ids_in_one_bracket_are_all_cited(world, monkeypatch):
+    world["use_tool"] = False
+    monkeypatch.setattr(ScriptedModel, "invoke", lambda self, msgs: AIMessage(
+        content="[]" if isinstance(msgs, str) else "It was declined before [L1, E1]."))
+    out = agent_brain.ask("insurance", "delivery", "again?", username="alice")
+    assert out["trace"]["cited"] == ["E1", "L1"] and out["trace"]["citations_unverified"] == []
