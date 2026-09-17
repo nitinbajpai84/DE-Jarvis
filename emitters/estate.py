@@ -35,6 +35,7 @@ import json
 import pathlib
 import re
 import sys
+import threading
 import uuid
 from typing import Any
 
@@ -101,6 +102,7 @@ def _iso_utc(value: Any) -> Any:
 
 
 _SCHEMA_READY: set[tuple[str, str]] = set()
+_SCHEMA_LOCK = threading.Lock()
 
 # Columns added after estate tables already existed on a live control plane. Same check-then-alter
 # approach as control_plane._MIGRATIONS (Databricks has no ADD COLUMN IF NOT EXISTS), appended at
@@ -128,15 +130,22 @@ def _con(target: str, domain: str):
     control = resolve_schema(platform, domain, "control")
     con = sql_connect(target, platform)
     if (target, control) not in _SCHEMA_READY:
-        ensure_control_schema(con, control)
-        for stmt in _DDL:
-            con.execute(stmt.format(c=control))
-        for table, column, ddl_type, backfill in _MIGRATIONS:
-            cols = {d[0].lower() for d in con.execute(f"select * from {control}.{table} limit 0").description}
-            if column not in cols:
-                con.execute(f"alter table {control}.{table} add column {column} {ddl_type}")
-                con.execute(f"update {control}.{table} set {column} = ? where {column} is null", [backfill])
-        _SCHEMA_READY.add((target, control))
+        # Serialised, and re-checked under the lock: the Control Room opens Discovery with
+        # /api/estate/scans and /api/estate/report in parallel, so on a fresh process both used to
+        # run this setup at once. Caught live as a 502 on the first page load after a restart --
+        # DuckDB "Catalog write-write conflict on alter" from two threads adding `scope` together,
+        # reproduced in 9 of 15 trials with six concurrent callers before this lock.
+        with _SCHEMA_LOCK:
+            if (target, control) not in _SCHEMA_READY:
+                ensure_control_schema(con, control)
+                for stmt in _DDL:
+                    con.execute(stmt.format(c=control))
+                for table, column, ddl_type, backfill in _MIGRATIONS:
+                    cols = {d[0].lower() for d in con.execute(f"select * from {control}.{table} limit 0").description}
+                    if column not in cols:
+                        con.execute(f"alter table {control}.{table} add column {column} {ddl_type}")
+                        con.execute(f"update {control}.{table} set {column} = ? where {column} is null", [backfill])
+                _SCHEMA_READY.add((target, control))
     return con, control
 
 

@@ -227,3 +227,37 @@ def test_scope_column_migrates_onto_an_existing_scan_table(tmp_path, monkeypatch
     scans = estate.list_scans("insurance", "duckdb")
     assert scans[0]["scope"] == "domain+unclassified"          # pre-scope scans did include legacy schemas
     assert estate.list_scans("insurance", "duckdb", include_unclassified=False) == []
+
+
+def test_first_use_schema_setup_is_safe_under_concurrent_requests(tmp_path, monkeypatch):
+    """The Control Room opens Discovery with /api/estate/scans and /api/estate/report in
+    parallel. On a fresh process both ran the schema setup and `scope` migration at once, and
+    DuckDB raised a write-write conflict on the ALTER -- a 502 on the first page load. Without
+    the lock this failed in 9 of 15 trials."""
+    import threading
+    for trial in range(5):
+        db = tmp_path / f"race{trial}.duckdb"
+        c = duckdb.connect(str(db))
+        c.execute("create schema control")
+        c.execute("""create table control.estate_scan (
+            scan_id varchar primary key, domain varchar, target varchar, status varchar,
+            tier_reached integer, schemas_scanned integer, tables_scanned integer,
+            started_at timestamp, ended_at timestamp, note varchar)""")
+        c.close()
+        monkeypatch.setattr(estate, "sql_connect",
+                            lambda target, platform, db=db: SqlConnection(duckdb.connect(str(db)), "duckdb"))
+        estate._SCHEMA_READY.clear()
+        errors = []
+
+        def call():
+            try:
+                estate.list_scans("insurance", "duckdb")
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [threading.Thread(target=call) for _ in range(6)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert errors == []
