@@ -206,32 +206,47 @@ def _sample_database(connection: dict, limit: int) -> tuple[list[str], list[list
         con.close()
 
 
-def _find_records(payload: Any, _depth: int = 0) -> list[dict] | None:
-    """Real-world JSON APIs don't share one envelope -- data.gov.sg alone has shipped at least
-    two ({"result":{"records":[...]}}, {"data":{"stations":[...],"readings":[...]}}), neither of
-    which is bronze_loader.py's one hardcoded {"data":{"rows":[...]}} shape (confirmed live: that
-    shape KeyError'd against a real data.gov.sg v2 endpoint). Exploring an unknown source is the
-    whole point of Step 01, so this looks for the first list-of-objects anywhere in the payload
-    -- common envelope keys first (cheap, usually right), then a shallow recursive scan -- rather
-    than assuming a shape nobody has agreed to yet. Depth-capped so a pathological payload can't
-    recurse forever."""
-    if isinstance(payload, list) and payload and isinstance(payload[0], dict):
-        return payload
-    if not isinstance(payload, dict) or _depth > 4:
+def _record_candidates(payload: Any, path: str = "$", depth: int = 0,
+                        out: list[tuple[str, list[dict]]] | None = None) -> list[tuple[str, list[dict]]]:
+    """EVERY list-of-objects in the payload, each with the JSON path it was found at.
+
+    Collecting all candidates rather than returning the first match is the point. Real APIs
+    routinely wrap the actual records one level down inside a single-element envelope: HDB's
+    Carpark Availability feed (data.gov.sg d_ca933a6...) returns
+    {"items":[{"timestamp":..., "carpark_data":[ ...~2000 carparks... ]}]}, so "first
+    list-of-objects" finds `items` -- one row, two columns, none of the actual data. Confirmed
+    live against that endpoint before this was changed, not hypothesised. Depth-capped so a
+    pathological payload can't recurse forever."""
+    if out is None:
+        out = []
+    if depth > 5:
+        return out
+    if isinstance(payload, list):
+        if payload and isinstance(payload[0], dict):
+            out.append((path, payload))
+            # Descend into the first element too: a single-row envelope may be hiding the
+            # real records underneath it.
+            _record_candidates(payload[0], f"{path}[0]", depth + 1, out)
+        return out
+    if isinstance(payload, dict):
+        for k, v in payload.items():
+            _record_candidates(v, f"{path}.{k}", depth + 1, out)
+    return out
+
+
+def _find_records(payload: Any) -> tuple[list[dict], str] | None:
+    """The best candidate list of records, and where it was found. "Best" is simply the longest
+    -- between a 1-row envelope and the 2,000 rows nested inside it, the 2,000 are what someone
+    exploring this source came to look at. Ties break toward the shallowest path, so a plain
+    {"records":[...]} response never gets outsmarted by something nested inside it.
+
+    The chosen path is returned (and surfaced in the profile) rather than applied silently:
+    picking between candidates is a judgement call, so the human can see which one was taken."""
+    candidates = _record_candidates(payload)
+    if not candidates:
         return None
-    for key in ("rows", "records", "results", "items", "data", "result"):
-        v = payload.get(key)
-        if isinstance(v, list) and v and isinstance(v[0], dict):
-            return v
-    for v in payload.values():
-        if isinstance(v, list) and v and isinstance(v[0], dict):
-            return v
-    for v in payload.values():
-        if isinstance(v, dict):
-            found = _find_records(v, _depth + 1)
-            if found:
-                return found
-    return None
+    best = max(candidates, key=lambda c: (len(c[1]), -c[0].count(".") - c[0].count("[")))
+    return best[1], best[0]
 
 
 def _sample_api(connection: dict, limit: int) -> tuple[list[str], list[list[Any]], int | None]:
@@ -245,16 +260,24 @@ def _sample_api(connection: dict, limit: int) -> tuple[list[str], list[list[Any]
     req = urllib.request.Request(connection["endpoint"], headers={"User-Agent": "Mozilla/5.0 (jarvis-data-platform)"})
     with urllib.request.urlopen(req, timeout=30) as resp:
         payload = json.loads(resp.read())
-    api_rows = _find_records(payload)
-    if api_rows is None:
+    found = _find_records(payload)
+    if found is None:
         raise ValueError(
             "could not find a list of records anywhere in the response -- this API's shape "
-            "isn't one Jarvis's profiler recognizes yet (checked top-level array, and "
-            "rows/records/results/items/data/result keys, then a shallow recursive scan)"
+            "isn't one this profiler recognizes yet (scanned the whole payload, to 5 levels "
+            "deep, for any list of JSON objects)"
         )
+    api_rows, records_path = found
     cols = sorted({k for r in api_rows for k in r.keys()})
     rows = [[r.get(c) for c in cols] for r in api_rows[:limit]]
+    _LAST_API_RECORDS_PATH.append(records_path)
     return cols, rows, len(api_rows)
+
+
+# _sample_api is called through the generic _SAMPLERS dispatch in profile_source(), which has no
+# place for a sampler to return an extra field -- this one-slot stash carries the chosen records
+# path back out so the profile can report it. Reset per call in profile_source().
+_LAST_API_RECORDS_PATH: list[str] = []
 
 
 def _extract_document_content(text: str) -> dict[str, Any]:
@@ -318,6 +341,7 @@ def profile_source(connection: dict, source_id: str, domain: str, sample_limit: 
     if sampler is None:
         raise NotImplementedError(f"connection.type={ctype!r} not implemented for profiling")
 
+    _LAST_API_RECORDS_PATH.clear()
     header, rows, total_rows = sampler(connection, sample_limit)
     columns = [_column_profile(name, [r[i] if i < len(r) else None for r in rows])
                for i, name in enumerate(header)]
@@ -329,6 +353,10 @@ def profile_source(connection: dict, source_id: str, domain: str, sample_limit: 
         "columns": columns, "candidate_keys": candidate_keys,
         "profiled_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
     }
+    if ctype == "api" and _LAST_API_RECORDS_PATH:
+        # Which list inside the response these records came from -- visible rather than a silent
+        # choice, since a nested envelope means there was more than one candidate.
+        report["records_path"] = _LAST_API_RECORDS_PATH[-1]
     if ctype == "unstructured":
         # file_path is column 0 in _sample_unstructured's header -- read each sampled document's
         # own content, not just its metadata, so exploring an unstructured source answers "what's

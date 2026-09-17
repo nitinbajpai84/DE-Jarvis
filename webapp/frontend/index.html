@@ -1113,6 +1113,7 @@ function profileCard(p){
       <span class="ptype">${esc(p.connection.type)}</span>
       <span class="prows">${fmtNum(p.sampled_rows)}/${fmtNum(p.total_rows)} rows · profiled ${timeAgo(p.profiled_at)}</span>
     </div>
+    ${p.records_path ? `<div class="intent-help" style="margin-top:6px;">records read from <span class="mono">${esc(p.records_path)}</span> in the API response</div>` : ''}
     <table class="coltable"><thead><tr><th>Column</th><th>Type</th><th>Null%</th><th>Distinct</th><th>Samples</th></tr></thead>
     <tbody>${rows}</tbody></table>
     ${extraction ? `<div class="extract-wrap">${extraction}</div>` : ''}
