@@ -162,3 +162,4 @@ def test_unsupported_names_ignore_verbs_roles_and_acronym_expansions():
     assert check("Use Auto Loader with `_rescued_data`.") == ["Auto Loader", "_rescued_data"]
     assert check("An Undefined RTO leaves recovery unplanned.") == []                             # stray capital before a grounded acronym
     assert check("Adopt Lakeflow Pipelines now.") == ["Lakeflow Pipelines"]
+    assert ra._unsupported_terms({"recommendation": "Use Streaming Tables in SQL."}, "Continuous incremental ingestion Streaming Table", "") == []

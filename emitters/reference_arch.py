@@ -459,6 +459,8 @@ _LEADING = {"implement", "use", "utilize", "utilise", "configure", "define", "es
             "migrate", "replicate", "monitor", "review", "document", "assign", "introduce", "develop", "automate",
             "achieve", "maintain", "store", "run", "schedule", "centralize", "centralise", "organize", "organise",
             "for", "to", "the", "this", "a", "an", "in", "on", "with", "each", "all", "your", "our", "and", "or"}
+# acronyms every data page uses in passing -- flagging them only buries the flags that matter
+_GENERIC = {"sql", "api", "apis", "etl", "elt", "pii", "json", "csv", "cdc", "scd", "rto", "rpo", "dr", "ha", "bi", "ml", "ai"}
 _ROLE_ENDINGS = ("team", "teams", "owner", "owners", "group", "manager", "managers", "engineer", "engineers",
                  "lead", "architect", "analyst", "steward", "stewards", "department", "unit")
 
@@ -474,7 +476,9 @@ def _unsupported_terms(r: dict[str, Any], cited_text: str, facts_text: str) -> l
     term counts as grounded when its acronym is ("Recovery Point Objective" where the page says RPO)."""
     params = {k: v for k, v in ((r.get("proposal") or {}).get("params") or {}).items() if k != "owner"}
     said = " ".join([str(r.get("recommendation", "")), json.dumps(params)])
-    ground_norm = _norm(cited_text + " " + facts_text)
+    def singular(text: str) -> str:   # "Streaming Tables" is grounded by a page saying "Streaming Table"
+        return " ".join(w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w for w in _norm(text).split())
+    ground_norm = singular(cited_text + " " + facts_text)
     ground = " " + ground_norm + " "
     tokens = set(ground_norm.split())
     missing = set()
@@ -483,15 +487,15 @@ def _unsupported_terms(r: dict[str, Any], cited_text: str, facts_text: str) -> l
         while len(words) > 1 and words[0].lower() in _LEADING:
             words = words[1:]
         name = " ".join(words)
-        if not _norm(name) or words[-1].lower() in _ROLE_ENDINGS or (len(words) == 1 and words[0].lower() in _LEADING):
+        if not _norm(name) or words[-1].lower() in _ROLE_ENDINGS or (len(words) == 1 and words[0].lower() in _LEADING | _GENERIC):
             continue
         acronym = "".join(w[0] for w in words).lower() if len(words) >= 2 else ""
-        if f" {_norm(name)} " in ground or (acronym and acronym in tokens):
+        if f" {singular(name)} " in ground or (acronym and acronym in tokens):
             continue
         # a grounded name with a stray capitalised word in front ("Undefined RTO"): any tail of two
         # or more words, or a lone acronym/CamelCase tail, that the sources contain grounds it
         tails = [words[i:] for i in range(1, len(words))]
-        if any((len(t) >= 2 or re.fullmatch(r"[A-Z0-9]{2,}|[A-Za-z]+[A-Z][A-Za-z]*", t[0])) and f" {_norm(' '.join(t))} " in ground
+        if any((len(t) >= 2 or re.fullmatch(r"[A-Z0-9]{2,}|[A-Za-z]+[A-Z][A-Za-z]*", t[0])) and f" {singular(' '.join(t))} " in ground
                for t in tails):
             continue
         missing.add(name)
