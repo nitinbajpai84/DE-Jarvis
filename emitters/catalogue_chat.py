@@ -83,14 +83,36 @@ def _extract_json_block(text: str) -> tuple[str, dict[str, Any] | None]:
 def chat_turn(kind: str, domain: str, history: list[dict[str, str]], message: str) -> dict[str, Any]:
     """One turn: the full conversation so far plus the new user message, and back comes the
     assistant's reply, split into the conversational text and (if present) a structured
-    suggestion the frontend can offer to apply to the form."""
+    suggestion the frontend can offer to apply to the form.
+
+    Memory (Phase 1): before replying, recalls whatever this domain's past conversations with
+    this agent are relevant to the new message and folds it into the system prompt as real prior
+    context -- this is concretely what "the agent remembers" means here, not a vague ambient
+    trait. When a turn produces a suggestion, that suggestion is written back as a new memory,
+    so the NEXT conversation (a different session, possibly days later) starts already knowing
+    it. Best-effort: any memory failure (no rows yet, an embedding error) degrades to "no prior
+    context" rather than breaking the conversation -- remembering is an enhancement, not a
+    dependency of the chat working at all."""
     if kind not in _SYSTEM_PROMPTS:
         raise ValueError(f"kind must be one of {list(_SYSTEM_PROMPTS)}, got {kind!r}")
 
     from langchain.chat_models import init_chat_model
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-    messages = [SystemMessage(content=_SYSTEM_PROMPTS[kind] + f"\n\nThe domain is {domain!r}.")]
+    system_text = _SYSTEM_PROMPTS[kind] + f"\n\nThe domain is {domain!r}."
+    try:
+        from emitters.agent_memory import recall
+        memories = recall(domain, kind, message, k=5)
+        if memories:
+            recalled = "\n".join(f"- {m['subject']}: {m['content']}" for m in memories)
+            system_text += (
+                f"\n\nYou have prior context from earlier conversations about this domain -- "
+                f"use it, don't ask for things you already know:\n{recalled}"
+            )
+    except Exception:  # noqa: BLE001 -- memory is an enhancement; its absence must never break the chat
+        pass
+
+    messages = [SystemMessage(content=system_text)]
     for turn in history:
         cls = HumanMessage if turn.get("role") == "user" else AIMessage
         messages.append(cls(content=turn.get("text", "")))
@@ -99,4 +121,13 @@ def chat_turn(kind: str, domain: str, history: list[dict[str, str]], message: st
     model = init_chat_model("google_genai:gemini-2.5-flash")
     reply = model.invoke(messages).content
     prose, suggestion = _extract_json_block(reply)
+
+    if suggestion:
+        try:
+            from emitters.agent_memory import remember
+            subject = suggestion.get("name") or f"{kind} draft"
+            remember(domain, kind, subject, json.dumps(suggestion), source="catalogue_chat")
+        except Exception:  # noqa: BLE001 -- same reasoning: never let memory writing break the chat
+            pass
+
     return {"reply": prose, "suggestion": suggestion}

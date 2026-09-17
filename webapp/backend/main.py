@@ -288,6 +288,23 @@ def api_catalogue_chat(request: Request, body: CatalogueChatRequest):
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+@app.get("/api/memory")
+def api_memory_list(request: Request, domain: str = pipeline.DEFAULT_DOMAIN, agent: str | None = None,
+                    target: str = "duckdb"):
+    """What an agent has actually remembered for this domain -- never a black box, see
+    emitters/agent_memory.py."""
+    _check_domain(request, domain)
+    from emitters.agent_memory import list_memory
+    return {"domain": domain, "memories": list_memory(domain, agent, target)}
+
+
+@app.delete("/api/memory/{domain}/{memory_id}")
+def api_memory_forget(request: Request, domain: str, memory_id: int, target: str = "duckdb"):
+    _check_domain(request, domain)
+    from emitters.agent_memory import forget
+    return {"ok": forget(domain, memory_id, target)}
+
+
 @app.get("/api/intent/gap-analysis")
 def api_gap_analysis(request: Request, domain: str = pipeline.DEFAULT_DOMAIN):
     _check_domain(request, domain)
