@@ -27,9 +27,9 @@ from __future__ import annotations
 # thing every prep tool/log line still refers to internally, so renaming a persona is a one-line
 # change here, never a hunt through agents/jarvis_tools.py's tool docstrings.
 AGENTS = {
-    1: {"num": 1, "role": "Business Analyst", "persona": "The Source Sleuth", "colour": "#4C8DFF", "defs": ["business-analyst"]},
-    2: {"num": 2, "role": "Solution Architect", "persona": "The Master Architect", "colour": "#9B7FE8", "defs": ["solution-architect", "data-architect"]},
-    3: {"num": 3, "role": "Program Manager", "persona": "Mr. Program Manager", "colour": "#2FE0C6", "defs": ["program-manager"]},
+    1: {"num": 1, "role": "Business Analyst", "persona": "The Data Detective", "colour": "#4C8DFF", "defs": ["business-analyst"]},
+    2: {"num": 2, "role": "Solution Architect", "persona": "The Chief Architect", "colour": "#9B7FE8", "defs": ["solution-architect", "data-architect"]},
+    3: {"num": 3, "role": "Program Manager", "persona": "The Delivery Lead", "colour": "#2FE0C6", "defs": ["program-manager"]},
     4: {"num": 4, "role": "Data Engineer", "persona": "The Superstar Data Engineer", "colour": "#CF8A4E", "defs": ["de-bronze", "de-silver", "de-gold"]},
     5: {"num": 5, "role": "Test Manager", "persona": "The Quality Guardian", "colour": "#3FC07A", "defs": ["test-manager"]},
     6: {"num": 6, "role": "Visualisation", "persona": "The Insight Artist", "colour": "#5CC8E8", "defs": []},
