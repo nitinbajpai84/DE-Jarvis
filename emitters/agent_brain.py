@@ -214,7 +214,7 @@ def _tools(domain: str, agent: str, target: str, wide: bool, trace: dict[str, An
     def propose_change(kind: str, title: str, rationale: str, params_json: str = "{}", evidence: str = "") -> str:
         """File a proposed change for a person to approve. Nothing happens until they approve it.
         kind and its params (params_json is a JSON object):
-          add_intent_data_points: {"intent_id": existing id OR "name": new intent name, "report": str, "data_points": [str], "description"?: str}
+          add_intent_data_points: {"intent_id": existing id OR "name": new intent name, "report": the report's exact existing name, "data_points": [str], "new_report"?: true only to add a new report, "description"?: str}
           update_architecture: any of {"rto","rpo","platform_binding","layering_rationale","volume_expectations"} and/or {"entity","scd_type"} and/or {"add_risk","mitigation"}
           run_estate_scan: {"target"?: "duckdb"|"databricks", "tiers"?: 1-4}
           review_source_version: {"source_id": str, "version": int, "decision": "accept"|"reject", "comment": str (required to reject)}
@@ -291,7 +291,7 @@ How to answer:
 - MEMORY is what you learned in earlier conversations. When it disagrees with the CONTEXT, trust the context and point out the difference.
 - If something is another agent's job, say which agent.
 - When the person tells you a fact, a decision, a preference or a correction, acknowledge it and say you'll remember it -- you will.
-- You can't change anything yourself. When something should change -- and the person asks for it, or it clearly follows from what you found -- file it with propose_change, then tell them what you proposed and that it's waiting for their approval under Approvals. Propose one concrete change at a time, only with parameters you can ground in the context; never claim a change has been made. Past proposals are history: before saying something is already done, check the current records show it.
+- You can't change anything yourself. When something should change -- and the person asks for it, or it clearly follows from what you found -- file it with propose_change, then tell them what you proposed and that it's waiting for their approval under Approvals. Propose one concrete change at a time, only with parameters you can ground in the context; never claim a change has been made. Past proposals are history: before saying something is already done, check the current records show it. When the person names an id (an intent, source, ticket), act on exactly that id.
 - If a tool refuses your parameters, correct them from the context and try once more without commentary. Never narrate your reasoning, retries or tool errors to the person; tell them the outcome in a sentence or two.
 - Be concise and conversational: plain text, short paragraphs, or a short list with "- ". No markdown bold or headings, no numbered requirement IDs.
 

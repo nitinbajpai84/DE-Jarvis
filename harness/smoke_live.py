@@ -151,6 +151,8 @@ class Smoke:
         self.check("agent files a proposal from conversation", lambda: self._agent_proposes(state))
         self.check("approval runs it under the approver's name", lambda: self._approve(state))
         self.check("second decision refused (409); decline needs a reason", lambda: self._decide_rules(state))
+        # run after this run's own intent is gone, so the only candidate is the one named
+        self.check("remove this run's intent", lambda: (self.call("admin", "DELETE", f"/api/intent/{SANDBOX}/{state['intent_id']}"), "deleted")[1])
         self.check("agent trusts current records over past approvals", self._history_vs_records)
 
         self.area = "11 Build, test, operate"

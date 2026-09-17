@@ -97,7 +97,7 @@ def test_source_review_and_failed_apply(world):
 
     # the thing it pointed at vanished between filing and approval: recorded as failed, never approved
     intent_mod.capture_intent("testco", "default", {"name": "Gone", "reports": []}, "alice")
-    q = _file("add_intent_data_points", {"intent_id": "gone", "report": "R", "data_points": ["x"]})
+    q = _file("add_intent_data_points", {"intent_id": "gone", "report": "R", "data_points": ["x"], "new_report": True})
     intent_mod.delete_intent("testco", "gone")
     failed = proposals.decide("testco", q["proposal_id"], "approve", by="carol")
     assert failed["status"] == "failed" and "error" in failed["result"]
@@ -156,3 +156,17 @@ def test_an_agent_files_proposals_from_a_conversation(world, monkeypatch):
     out2 = agent_brain.ask("testco", "delivery", "Assign it.", username="alice", session_id=out["session_id"])
     assert out2["trace"]["proposals"] == [] and w["tool_result"].startswith("Not filed:")
     assert len(proposals.list_proposals("testco")) == 1
+
+
+def test_report_names_must_match_an_existing_report(world):
+    intent_mod.capture_intent("testco", "default", {"name": "Claims", "reports": [
+        {"name": "Claims by month", "required_data_points": ["claim_id"]}]}, "alice")
+    ok = _file("add_intent_data_points", {"intent_id": "claims", "report": "claims by month report", "data_points": ["paid_amount"]})
+    assert ok["params"]["report"] == "Claims by month"            # resolved to the real report
+    with pytest.raises(ValueError, match="its reports are"):
+        _file("add_intent_data_points", {"intent_id": "claims", "report": "Monthly claims", "data_points": ["x"]})
+    new = _file("add_intent_data_points", {"intent_id": "claims", "report": "Monthly claims", "data_points": ["x"], "new_report": True})
+    proposals.decide("testco", ok["proposal_id"], "approve", by="carol")
+    proposals.decide("testco", new["proposal_id"], "approve", by="carol")
+    reports = {r["name"]: r["required_data_points"] for r in intent_mod.load_intent("testco", "claims")["reports"]}
+    assert reports == {"Claims by month": ["claim_id", "paid_amount"], "Monthly claims": ["x"]}

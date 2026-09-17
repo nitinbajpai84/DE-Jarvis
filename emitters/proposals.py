@@ -193,7 +193,8 @@ KINDS: dict[str, dict[str, Any]] = {
     "add_intent_data_points": {
         "label": "Add data points to an intent",
         "schema": {"intent_id": (str, False), "name": (str, False), "business_outcome": (str, False),
-                   "report": (str, True), "description": (str, False), "data_points": (list, True)},
+                   "report": (str, True), "description": (str, False), "data_points": (list, True),
+                   "new_report": (bool, False)},
         "preview": _intent_preview, "apply": _intent_apply,
     },
     "update_architecture": {
@@ -286,6 +287,20 @@ def _check_targets(domain: str, kind: str, p: dict[str, Any]) -> None:
             if not match:
                 raise ValueError(f"there is no intent {p['intent_id']!r}; give a name to create a new one instead")
             p["intent_id"] = check_id(match[0]["intent_id"])
+            # The report must be one the intent already has, unless a new one is asked for. Found
+            # in the live smoke test: an agent wrote "Claims by month report" for the report
+            # "Claims by month", and approval quietly created a second, misnamed report instead of
+            # adding the data point where it belonged.
+            reports = [r.get("name") or "" for r in match[0].get("reports") or []]
+            if not p.get("new_report"):
+                def norm(n: str) -> str:
+                    n = " ".join(n.lower().split())
+                    return n[:-len(" report")] if n.endswith(" report") else n
+                same_report = [r for r in reports if norm(r) == norm(p["report"])]
+                if len(same_report) != 1:
+                    raise ValueError(f"intent {p['intent_id']!r} has no report called {p['report']!r}; its reports are "
+                                     f"{reports or 'none'} -- use one of those names, or set new_report true to add a report")
+                p["report"] = same_report[0]
         elif not p.get("name"):
             raise ValueError("give an existing intent_id, or a name for a new intent")
     elif kind == "review_source_version":
