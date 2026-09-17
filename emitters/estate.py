@@ -87,6 +87,18 @@ def _load_platform(target: str) -> dict[str, Any]:
     return yaml.safe_load((REPO_ROOT / "contracts" / "platform" / f"{target}.yaml").read_text())
 
 
+def _utcnow() -> _dt.datetime:
+    """Naive UTC, stored as such on both engines. Passing an aware datetime was not neutral:
+    DuckDB converted it to the machine's local time before dropping the zone (SGT on a dev
+    laptop), Databricks kept UTC, and both read back zone-less -- so the Control Room, parsing
+    them as browser-local time, showed a 20-minute-old Databricks scan as "8h ago"."""
+    return _dt.datetime.now(_dt.timezone.utc).replace(tzinfo=None)
+
+
+def _iso_utc(value: Any) -> Any:
+    return value.isoformat() + "Z" if isinstance(value, _dt.datetime) else value
+
+
 _SCHEMA_READY: set[tuple[str, str]] = set()
 
 
@@ -305,7 +317,7 @@ def _owns(table: str, stem: str) -> bool:
     return entity == stem or entity.endswith("_" + stem)
 
 
-def _tier3_relationships(con, control: str, scan_id: str, max_pairs: int = 200) -> int:
+def _tier3_relationships(con, control: str, scan_id: str, max_pairs: int = 200) -> tuple[int, str | None]:
     """Foreign keys, and how intact they are.
 
     Two separate questions, answered by two separate things -- conflating them is what the
@@ -362,7 +374,7 @@ def _tier3_relationships(con, control: str, scan_id: str, max_pairs: int = 200) 
                 candidates.append((schema, child, parent))
     candidates = candidates[:max_pairs]
 
-    rel_rows = []
+    rel_rows, failed, last_error = [], 0, None
     for schema, (ct, cc), (pt, pc) in candidates:
         try:
             child_n, resolved = con.execute(
@@ -370,7 +382,9 @@ def _tier3_relationships(con, control: str, scan_id: str, max_pairs: int = 200) 
                 f'select (select count(*) from c), '
                 f'(select count(*) from c where v in (select "{pc}" from {schema}.{pt}))'
             ).fetchone()
-        except Exception:  # noqa: BLE001 -- incomparable types etc: no relationship claimed
+        except Exception as exc:  # noqa: BLE001 -- no relationship claimed, but the failure is counted
+            failed += 1
+            last_error = f"{type(exc).__name__}: {str(exc)[:160]}"
             continue
         if not child_n:
             continue
@@ -381,7 +395,12 @@ def _tier3_relationships(con, control: str, scan_id: str, max_pairs: int = 200) 
         rel_rows.append([scan_id, schema, ct, cc, schema, pt, pc, round(pct, 2), integrity])
     con.executemany(f"insert into {control}.estate_relationship values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     rel_rows)
-    return len(rel_rows)
+    # Not swallowed. Seen live: the same Databricks estate gave 56 references from a laptop and
+    # 0 from the Railway container, and the report said "no references found" -- a tier that
+    # failed, presented as a clean result.
+    why = (f"{failed} of {len(candidates)} reference checks failed; last: {last_error}"
+           if failed else None)
+    return len(rel_rows), why
 
 
 # --------------------------------------------------------------------------- mirrors
@@ -595,7 +614,7 @@ def run_scan(domain: str, target: str = "duckdb", tiers: int = 4,
     afford to run against everything. `scan_id` lets a caller that runs this in the background
     hand the id back to a client before the scan has written anything."""
     scan_id = scan_id or uuid.uuid4().hex[:12]
-    started = _dt.datetime.now(_dt.timezone.utc)
+    started = _utcnow()
     con, control = _con(target, domain)
     try:
         con.execute(
@@ -612,13 +631,13 @@ def run_scan(domain: str, target: str = "duckdb", tiers: int = 4,
             con.execute(
                 f"update {control}.estate_scan set status = ?, tier_reached = ?, ended_at = ?, "
                 f"note = ? where scan_id = ?",
-                ["completed", 1, _dt.datetime.now(_dt.timezone.utc),
+                ["completed", 1, _utcnow(),
                  f"no tables found on {target} in {domain}'s schemas or in any unclassified schema "
                  f"-- nothing has been loaded here yet", scan_id])
             return {"scan_id": scan_id, "domain": domain, "target": target, "status": "completed",
                     "tier_reached": 1, "schemas_scanned": 0, "tables_scanned": 0, "shortlisted": 0,
                     "enriched": 0, "note": "no tables found",
-                    "seconds": round((_dt.datetime.now(_dt.timezone.utc) - started).total_seconds(), 1)}
+                    "seconds": round((_utcnow() - started).total_seconds(), 1)}
 
         shortlist: list[dict[str, Any]] = []
         if tiers >= 2:
@@ -631,19 +650,25 @@ def run_scan(domain: str, target: str = "duckdb", tiers: int = 4,
         con.execute(f"update {control}.estate_scan set schemas_scanned = ?, tables_scanned = ? "
                     f"where scan_id = ?", [schemas, len(inventory), scan_id])
         if tiers >= 3:
-            _tier3_relationships(con, control, scan_id)   # reads the profiled columns just written
-            reached = 3
-        note = None
+            found, t3_note = _tier3_relationships(con, control, scan_id)   # reads the profiled columns just written
+            # every check failing is a tier that didn't run, not an estate without references
+            reached = 2 if (t3_note and not found) else 3
+            notes = [t3_note] if t3_note else []
+        else:
+            notes = []
         enriched = 0
         if tiers >= 4:
-            enriched, note = _tier4_enrich(con, control, scan_id, shortlist)
+            enriched, t4_note = _tier4_enrich(con, control, scan_id, shortlist)
+            if t4_note:
+                notes.append(t4_note)
             # Only claim tier 4 if it produced something. A tier that errored out is reported as
             # not reached, with the reason in the note -- never as done.
             if enriched:
                 _rewrite_tables(con, control, scan_id, inventory)
                 reached = 4
+        note = " · ".join(notes) or None
 
-        ended = _dt.datetime.now(_dt.timezone.utc)
+        ended = _utcnow()
         con.execute(
             f"update {control}.estate_scan set status = ?, tier_reached = ?, schemas_scanned = ?, "
             f"tables_scanned = ?, ended_at = ?, note = ? where scan_id = ?",
@@ -657,7 +682,7 @@ def run_scan(domain: str, target: str = "duckdb", tiers: int = 4,
     except Exception as exc:  # noqa: BLE001 -- record the failure rather than leaving it "running"
         con.execute(
             f"update {control}.estate_scan set status = ?, note = ?, ended_at = ? where scan_id = ?",
-            ["failed", f"{type(exc).__name__}: {exc}", _dt.datetime.now(_dt.timezone.utc), scan_id],
+            ["failed", f"{type(exc).__name__}: {exc}", _utcnow(), scan_id],
         )
         raise
     finally:
@@ -709,6 +734,7 @@ def build_report(domain: str, target: str = "duckdb", scan_id: str | None = None
             f"ended_at, note from {control}.estate_scan where scan_id = ?", [scan_id]).fetchone()
         scan = dict(zip(["scan_id", "status", "tier_reached", "schemas_scanned", "tables_scanned",
                          "started_at", "ended_at", "note"], s))
+        scan["started_at"], scan["ended_at"] = _iso_utc(scan["started_at"]), _iso_utc(scan["ended_at"])
 
         tcols = ["schema_name", "table_name", "column_count", "row_count", "shortlisted",
                  "shortlist_reason", "classification", "business_meaning", "entity_type",
@@ -894,7 +920,7 @@ def close_abandoned(domain: str, target: str, live_scan_id: str | None) -> int:
             con.execute(
                 f"update {control}.estate_scan set status = ?, note = ?, ended_at = ? where scan_id = ?",
                 ["failed", "interrupted: the process running this scan stopped before it finished",
-                 _dt.datetime.now(_dt.timezone.utc), sid])
+                 _utcnow(), sid])
         return len(stale)
     finally:
         con.close()
@@ -910,6 +936,9 @@ def list_scans(domain: str, target: str = "duckdb", limit: int = 10) -> list[dic
         ).fetchall()
         keys = ["scan_id", "status", "tier_reached", "schemas_scanned", "tables_scanned",
                 "started_at", "ended_at", "note"]
-        return [dict(zip(keys, r)) for r in rows][:limit]
+        scans = [dict(zip(keys, r)) for r in rows][:limit]
+        for sc in scans:
+            sc["started_at"], sc["ended_at"] = _iso_utc(sc["started_at"]), _iso_utc(sc["ended_at"])
+        return scans
     finally:
         con.close()

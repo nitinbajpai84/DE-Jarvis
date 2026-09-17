@@ -159,6 +159,12 @@ def test_empty_estate_claims_no_tiers_it_did_not_run(tmp_path, monkeypatch):
     scan = estate.list_scans("insurance", "duckdb")[0]
     assert scan["tier_reached"] == 1 and "no tables found" in scan["note"]
 
+    # timestamps leave as explicit UTC, whatever the machine's own zone is
+    import datetime as dt
+    assert scan["started_at"].endswith("Z")
+    started = dt.datetime.fromisoformat(scan["started_at"][:-1]).replace(tzinfo=dt.timezone.utc)
+    assert abs((dt.datetime.now(dt.timezone.utc) - started).total_seconds()) < 120
+
 
 def test_abandoned_running_scan_is_closed(synthetic_estate):
     summary, _ = synthetic_estate()
