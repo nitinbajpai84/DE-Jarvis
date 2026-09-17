@@ -463,6 +463,18 @@ def api_memory_forget(request: Request, domain: str, memory_id: int, target: str
     return {"ok": forget(domain, memory_id, target)}
 
 
+@app.get("/api/gaps")
+def api_gap_report(request: Request, domain: str = pipeline.DEFAULT_DOMAIN, target: str = "duckdb"):
+    """The estate-backed gap report: every intent data point against contracts, profiles and the
+    latest estate scan this login may read, classified into the eight gap types."""
+    _check_domain(request, domain)
+    from emitters.gap_report import build_gap_report
+    try:
+        return build_gap_report(domain, target, include_unclassified=_sees_unclassified(request))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @app.get("/api/intent/gap-analysis")
 def api_gap_analysis(request: Request, domain: str = pipeline.DEFAULT_DOMAIN):
     _check_domain(request, domain)

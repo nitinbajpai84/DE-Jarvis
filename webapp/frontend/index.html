@@ -394,6 +394,33 @@
   .lz-src code{font-family:'IBM Plex Mono';font-size:11px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .lz-src span{font-family:'IBM Plex Mono';font-size:10.5px;color:var(--text-muted);white-space:nowrap;}
   .lz-path{font-family:'IBM Plex Mono';font-size:10.5px;color:var(--text-muted);margin-top:8px;}
+  .gr-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px;}
+  @media (max-width:760px){.gr-tiles{grid-template-columns:repeat(2,minmax(0,1fr));}}
+  .gr-tile{border:1px solid var(--border-soft);border-radius:10px;padding:10px 12px;background:var(--bg-panel-2);}
+  .gr-tile b{display:block;font-size:20px;font-variant-numeric:tabular-nums;color:var(--text-primary);}
+  .gr-tile span{font-size:11px;color:var(--text-muted);}
+  .gr-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+  .gr-chip{border:1px solid var(--border);background:var(--bg-panel);border-radius:20px;padding:4px 10px;font-size:11.5px;
+    color:var(--text-secondary);cursor:pointer;display:inline-flex;gap:6px;align-items:center;font-family:inherit;}
+  .gr-chip b{font-family:'IBM Plex Mono';font-size:11px;color:var(--text-primary);}
+  .gr-chip.on{border-color:var(--accent-line);background:var(--accent-soft);color:var(--accent-ink);}
+  .gr-chip:disabled{opacity:.45;cursor:default;}
+  .gr-intents{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;}
+  .gr-intent{display:grid;grid-template-columns:minmax(0,200px) minmax(0,1fr) 70px;gap:10px;align-items:center;font-size:12px;}
+  .gr-bar{height:6px;border-radius:4px;background:var(--bg-raised);overflow:hidden;}
+  .gr-bar i{display:block;height:100%;background:var(--good);border-radius:4px;}
+  .gr-row{border-top:1px solid var(--border-soft);padding:11px 0;display:grid;grid-template-columns:minmax(0,230px) minmax(0,1fr);gap:16px;}
+  @media (max-width:760px){.gr-row{grid-template-columns:1fr;gap:6px;}}
+  .gr-dp code{font-family:'IBM Plex Mono';font-size:12.5px;color:var(--text-primary);font-weight:600;}
+  .gr-dp .sub{font-size:11px;color:var(--text-muted);margin-top:2px;}
+  .gr-found{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;}
+  .gr-found span{font-family:'IBM Plex Mono';font-size:10px;padding:1px 6px;border-radius:10px;background:var(--bg-raised);color:var(--text-secondary);}
+  .gr-gap{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;margin-bottom:8px;align-items:baseline;}
+  .gr-gap:last-child{margin-bottom:0;}
+  .gr-gap .t{font-size:12.5px;color:var(--text-primary);font-weight:600;}
+  .gr-gap .a{grid-column:2;font-size:12px;color:var(--text-secondary);line-height:1.45;}
+  .gr-gap .o{grid-column:2;font-size:10.5px;color:var(--text-muted);}
+  .gr-ready{font-size:12px;color:var(--good);}
   .est-table-wrap{overflow-x:auto;}
   .est-table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px;}
   .est-table th{text-align:left;font-family:'IBM Plex Mono';font-size:10px;letter-spacing:.06em;text-transform:uppercase;
@@ -1065,6 +1092,11 @@ active portfolio | has an open position as of the reporting date | investments t
       <div id="intentChanges"></div>
     </div>
     <div class="panel">
+      <div class="panel-head"><h3>Gap report</h3>
+        <span class="note">Can ${esc(currentDomain)}'s estate serve these intents? Every data point checked against contracts, profiles and the latest estate scan</span></div>
+      <div id="gapReport"><div class="empty-note">Loading…</div></div>
+    </div>
+    <div class="panel">
       <div class="panel-head"><h3>Gap analysis</h3><span class="note">Recomputed fresh every run — never trusted from a stale file</span></div>
       <div id="gapResults"><div class="empty-note">Run gap analysis to see results here.</div></div>
     </div>
@@ -1206,7 +1238,7 @@ dim_awm_portfolio | scd1"></textarea></label>
   if (s.id === 'catalogue') {
     wireDropzone(); loadUploads();
     loadIntentForm(); loadArchitectureForm(); loadDiagram(); loadMemoryUI();
-    if (o.intent_captured) runGapAnalysisUI();
+    if (o.intent_captured) runGapAnalysisUI(); else loadGapReport();
   }
   if (s.id === 'build') { refreshFlow(); loadAgentRuns(); }
   if (s.id === 'operate') { refreshAlerts(); loadTicketsUI(); }
@@ -2203,6 +2235,80 @@ async function signIntentVersion(intentId, version){
 }
 window.signIntentVersion = signIntentVersion;
 
+/* ============================== estate-backed gap report (step 02) ============================== */
+let gapReportData = null;
+let gapReportFilter = null;
+
+function gapReportHtml(r){
+  if (!r.intent_captured) return `<div class="empty-note">No intent captured yet for ${esc(currentDomain)} — capture one below and the report checks every data point it needs.</div>`;
+  const s = r.summary;
+  const types = Object.entries(r.gap_types);
+  const chips = `<button class="gr-chip ${gapReportFilter ? '' : 'on'}" onclick="filterGapReport(null)">All gaps <b>${s.gaps}</b></button>` +
+    types.map(([k, t]) => `<button class="gr-chip ${gapReportFilter === k ? 'on' : ''}" ${s.by_type[k] ? '' : 'disabled'} onclick="filterGapReport('${k}')" title="${esc(t.why)}">${esc(t.label)} <b>${s.by_type[k]}</b></button>`).join('');
+  const intents = r.intents.map(i => `<div class="gr-intent"><span>${esc(i.intent)}</span>
+      <span class="gr-bar" role="img" aria-label="${i.score_pct ?? 0}% ready"><i style="width:${i.score_pct ?? 0}%"></i></span>
+      <span class="rv-ver">${i.ready}/${i.data_points} ready</span></div>`).join('');
+  const scan = r.estate_scan
+    ? `Estate scan ${esc(r.estate_scan.scan_id)} · ${timeAgo(r.estate_scan.ended_at)} · on ${esc(r.target)}`
+    : '';
+  const rowMatches = row => !gapReportFilter || row.gaps.some(g => g.type === gapReportFilter);
+  const rows = r.data_points.filter(rowMatches).map(row => {
+    const found = [
+      ...row.found_in.contracts.map(c => `<span>contract · ${esc(c)}</span>`),
+      ...row.found_in.profiles.map(p => `<span>profile · ${esc(p.source_id)} (${esc(p.review_status)})</span>`),
+      ...row.found_in.estate.slice(0, 3).map(t => `<span>estate · ${esc(t)}</span>`),
+      ...(row.found_in.estate.length > 3 ? [`<span>+${row.found_in.estate.length - 3} more tables</span>`] : []),
+    ].join('');
+    const gaps = row.gaps.filter(g => !gapReportFilter || g.type === gapReportFilter).map(g => `<div class="gr-gap">
+        <span class="sev ${esc(g.severity)}">${esc(g.severity)}</span><span class="t">${esc(g.label)}</span>
+        <span class="a">${qText(g.action)}</span>
+        <span class="o">${esc(g.owner)}</span>
+      </div>`).join('') || `<span class="gr-ready">✓ Ready — found and usable</span>`;
+    return `<div class="gr-row">
+      <div class="gr-dp"><code>${esc(row.data_point)}</code><div class="sub">${esc(row.intent)} · ${esc(row.report)}</div>
+        <div class="gr-found">${found || '<span>found nowhere</span>'}</div></div>
+      <div>${gaps}</div>
+    </div>`;
+  }).join('');
+  const conflicts = (!gapReportFilter || gapReportFilter === 'definition_conflict') ? r.definition_conflicts.map(c => `<div class="gr-row">
+      <div class="gr-dp"><code>“${esc(c.term)}”</code><div class="sub">business term</div></div>
+      <div>${c.gaps.map(g => `<div class="gr-gap"><span class="sev ${esc(g.severity)}">${esc(g.severity)}</span><span class="t">${esc(g.label)}</span>
+        <span class="a">${esc(g.action)}</span><span class="o">${esc(g.owner)}</span></div>`).join('')}</div></div>`).join('') : '';
+  return `<div class="gr-tiles">
+      <div class="gr-tile"><b>${s.ready}/${s.data_points}</b><span>data points ready</span></div>
+      <div class="gr-tile"><b>${s.by_severity.high}</b><span>high-severity gaps</span></div>
+      <div class="gr-tile"><b>${s.by_severity.medium}</b><span>medium-severity gaps</span></div>
+      <div class="gr-tile"><b>${Object.keys(s.by_owner).length}</b><span>agents with work to do</span></div>
+    </div>
+    <div class="gr-intents">${intents}</div>
+    <div class="gr-chips">${chips}</div>
+    ${r.note ? `<p class="note-line" style="margin:0 0 10px;">${esc(r.note)}</p>` : ''}
+    ${rows}${conflicts}
+    ${scan ? `<p class="note-line">${scan} · exact column names only, no guessing at synonyms</p>` : ''}`;
+}
+
+function filterGapReport(kind){
+  gapReportFilter = kind;
+  const host = document.getElementById('gapReport');
+  if (host && gapReportData) host.innerHTML = gapReportHtml(gapReportData);
+}
+window.filterGapReport = filterGapReport;
+
+async function loadGapReport(){
+  const host = document.getElementById('gapReport');
+  if (!host) return;
+  try {
+    const r = await api(`/api/gaps?domain=${encodeURIComponent(currentDomain)}&target=${encodeURIComponent(currentTarget)}`);
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    gapReportData = j;
+    host.innerHTML = gapReportHtml(j);
+  } catch (e) {
+    host.innerHTML = `<div class="empty-note">Could not build the gap report: ${esc(e.message)}</div>`;
+  }
+}
+window.loadGapReport = loadGapReport;
+
 function gapResultsHtml(report){
   if (!report.intent_captured) return `<div class="empty-note">No intent captured yet for ${esc(currentDomain)} — save one above first.</div>`;
   const gapRows = (report.data_point_gaps||[]).map(g => `<div class="gap-row ${g.status}">
@@ -2230,6 +2336,7 @@ async function runGapAnalysisUI(){
     const r = await api(`/api/intent/gap-analysis?domain=${encodeURIComponent(currentDomain)}`);
     const report = await r.json();
     el.innerHTML = gapResultsHtml(report);
+    loadGapReport();
     await refreshJourneyDataQuietly();
   } catch (e) {
     el.innerHTML = `<div class="empty-note">Could not run gap analysis: ${esc(e.message)}</div>`;

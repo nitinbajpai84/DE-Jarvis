@@ -56,7 +56,7 @@ _DDL = [
         scan_id varchar, schema_name varchar, table_name varchar, column_count integer,
         row_count bigint, shortlisted boolean, shortlist_reason varchar, classification varchar,
         business_meaning varchar, entity_type varchar, concerns varchar,
-        mirrors varchar, mirror_state varchar, mirror_diff_rows bigint)""",
+        mirrors varchar, mirror_state varchar, mirror_diff_rows bigint, mirror_diff_columns varchar)""",
     """create table if not exists {c}.estate_column (
         scan_id varchar, schema_name varchar, table_name varchar, column_name varchar,
         data_type varchar, ordinal integer, null_pct double, distinct_count bigint,
@@ -108,7 +108,8 @@ _SCHEMA_LOCK = threading.Lock()
 # approach as control_plane._MIGRATIONS (Databricks has no ADD COLUMN IF NOT EXISTS), appended at
 # the end so positional `insert ... values` stays in DDL order. Scans from before `scope` existed
 # all included unclassified schemas, so that is what they are backfilled as.
-_MIGRATIONS = [("estate_scan", "scope", "varchar", "domain+unclassified")]
+_MIGRATIONS = [("estate_scan", "scope", "varchar", "domain+unclassified"),
+               ("estate_table", "mirror_diff_columns", "varchar", None)]
 
 # Two scan scopes. Unclassified schemas (belonging to no domain) are admin-only: on this
 # deployment they are the legacy pre-migration copies of insurance data, and a scan run for
@@ -144,7 +145,8 @@ def _con(target: str, domain: str):
                     cols = {d[0].lower() for d in con.execute(f"select * from {control}.{table} limit 0").description}
                     if column not in cols:
                         con.execute(f"alter table {control}.{table} add column {column} {ddl_type}")
-                        con.execute(f"update {control}.{table} set {column} = ? where {column} is null", [backfill])
+                        if backfill is not None:
+                            con.execute(f"update {control}.{table} set {column} = ? where {column} is null", [backfill])
                 _SCHEMA_READY.add((target, control))
     return con, control
 
@@ -206,6 +208,7 @@ def _tier1_inventory(con, control: str, scan_id: str, domain: str,
         inventory.append({"schema": schema, "table": table, "columns": cols, "row_count": n,
                           "origin": origin, "stats": {}, "shortlist_reason": None,
                           "mirrors": None, "mirror_state": None, "mirror_diff_rows": None,
+                          "mirror_diff_columns": None,
                           "business_meaning": None, "entity_type": None, "concerns": None})
     return inventory
 
@@ -224,7 +227,7 @@ def _table_rows(scan_id: str, inventory: list[dict[str, Any]]) -> list[list]:
     return [[scan_id, i["schema"], i["table"], len(i["columns"]), i["row_count"],
              i["shortlist_reason"] is not None, i["shortlist_reason"], i["origin"],
              i["business_meaning"], i["entity_type"], i["concerns"],
-             i["mirrors"], i["mirror_state"], i["mirror_diff_rows"]] for i in inventory]
+             i["mirrors"], i["mirror_state"], i["mirror_diff_rows"], i["mirror_diff_columns"]] for i in inventory]
 
 
 def _write_census(con, control: str, scan_id: str, inventory: list[dict[str, Any]]) -> None:
@@ -236,7 +239,7 @@ def _write_census(con, control: str, scan_id: str, inventory: list[dict[str, Any
                              s["null_pct"] if s else None, s["distinct"] if s else None,
                              s["is_key"] if s else None, _classify_column(column), s is not None])
     con.executemany(f"insert into {control}.estate_table values "
-                    f"(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", _table_rows(scan_id, inventory))
+                    f"(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", _table_rows(scan_id, inventory))
     con.executemany(f"insert into {control}.estate_column values "
                     f"(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", col_rows)
 
@@ -246,7 +249,7 @@ def _rewrite_tables(con, control: str, scan_id: str, inventory: list[dict[str, A
     rather than one UPDATE per enriched table."""
     con.execute(f"delete from {control}.estate_table where scan_id = ?", [scan_id])
     con.executemany(f"insert into {control}.estate_table values "
-                    f"(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", _table_rows(scan_id, inventory))
+                    f"(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", _table_rows(scan_id, inventory))
 
 
 # --------------------------------------------------------------------------- shortlist
@@ -509,6 +512,24 @@ def _detect_mirrors(con, inventory: list[dict[str, Any]]) -> int:
         copy["mirrors"] = f"{owned['schema']}.{owned['table']}"
         copy["mirror_state"] = "identical" if diff == 0 else "diverged"
         copy["mirror_diff_rows"] = diff
+        if diff:
+            # Which business columns actually disagree -- a table-level "diverged" made every
+            # column of the table look like a conflict (caught by the gap report's own test:
+            # agent_id was flagged because its table's copy differed, when only customer_email
+            # did). Per-column multiset comparison, and only for diverged pairs, so it stays cheap.
+            differing = []
+            for c in biz:
+                try:
+                    n = con.execute(
+                        f'select count(*) from ((select "{c}" from {copy["schema"]}.{copy["table"]} '
+                        f'except all select "{c}" from {owned["schema"]}.{owned["table"]}) union all '
+                        f'(select "{c}" from {owned["schema"]}.{owned["table"]} '
+                        f'except all select "{c}" from {copy["schema"]}.{copy["table"]}))').fetchone()[0]
+                except Exception:  # noqa: BLE001 -- unknown for this column; don't claim either way
+                    continue
+                if n:
+                    differing.append(c)
+            copy["mirror_diff_columns"] = ",".join(differing)
         found += 1
     return found
 
