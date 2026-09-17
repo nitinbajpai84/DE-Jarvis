@@ -51,6 +51,7 @@ def test_scope_excludes_control_and_other_tenants():
     known = ["asset_management", "insurance"]
     assert estate._in_scope("insurance_silver", "insurance", "control", known) == (True, "insurance")
     assert estate._in_scope("silver", "insurance", "control", known) == (True, "unclassified")
+    assert estate._in_scope("silver", "insurance", "control", known, include_unclassified=False)[0] is False
     assert estate._in_scope("asset_management_gold", "insurance", "control", known)[0] is False
     assert estate._in_scope("control", "insurance", "control", known)[0] is False
 
@@ -95,15 +96,16 @@ def _plant(path, wide: int) -> None:
 
 @pytest.fixture
 def synthetic_estate(tmp_path, monkeypatch):
-    def run(wide: int = 0):
+    def run(wide: int = 0, include_unclassified: bool = True):
         db = tmp_path / f"estate_{wide}.duckdb"
-        _plant(db, wide)
+        if not db.exists():
+            _plant(db, wide)
         monkeypatch.setattr(estate, "sql_connect",
                             lambda target, platform: _CountingConnection(duckdb.connect(str(db)), "duckdb"))
         monkeypatch.setattr(estate, "_known_domains", lambda: ["asset_management", "insurance"])
         estate._SCHEMA_READY.clear()
         _CountingConnection.statements = 0
-        summary = estate.run_scan("insurance", "duckdb", tiers=3)
+        summary = estate.run_scan("insurance", "duckdb", tiers=3, include_unclassified=include_unclassified)
         return summary, _CountingConnection.statements
     return run
 
@@ -169,11 +171,59 @@ def test_empty_estate_claims_no_tiers_it_did_not_run(tmp_path, monkeypatch):
 def test_abandoned_running_scan_is_closed(synthetic_estate):
     summary, _ = synthetic_estate()
     con, control = estate._con("duckdb", "insurance")
-    con.execute(f"insert into {control}.estate_scan values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                ["deadbeef0000", "insurance", "duckdb", "running", 0, 0, 0, None, None, None])
+    con.execute(f"insert into {control}.estate_scan values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ["deadbeef0000", "insurance", "duckdb", "running", 0, 0, 0, None, None, None, "domain"])
+    con.execute(f"insert into {control}.estate_scan values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ["a1ive0000000", "insurance", "duckdb", "running", 0, 0, 0, None, None, None, "domain"])
     con.close()
-    assert estate.close_abandoned("insurance", "duckdb", live_scan_id=None) == 1
+    assert estate.close_abandoned("insurance", "duckdb", live_scan_ids={"a1ive0000000"}) == 1
     rows = {s["scan_id"]: s for s in estate.list_scans("insurance", "duckdb")}
     assert rows["deadbeef0000"]["status"] == "failed"
     assert "interrupted" in rows["deadbeef0000"]["note"]
     assert rows[summary["scan_id"]]["status"] == "completed"
+
+
+def test_company_scan_never_includes_unclassified_schemas(synthetic_estate):
+    """Unclassified estate is admin-only: a company's scan must not census it, and a company
+    must not be able to read an admin scan -- neither as "latest" nor by pasting its id."""
+    admin, _ = synthetic_estate(include_unclassified=True)
+    company, _ = synthetic_estate(include_unclassified=False)
+
+    rep = estate.build_report("insurance", "duckdb", include_unclassified=False)
+    assert rep["scan"]["scan_id"] == company["scan_id"] and rep["scan"]["scope"] == "domain"
+    assert rep["coverage"]["tables"] == 3                         # own schemas only
+    assert rep["coverage"]["unclassified_schemas"] == []
+    assert rep["mirrors"] == {"identical": [], "diverged": []}   # the legacy copies are not visible
+    assert not any("silver`" in q["question"] and "no domain" in q["question"] for q in rep["open_questions"])
+
+    assert estate.build_report("insurance", "duckdb", admin["scan_id"], include_unclassified=False)["scan"] is None
+    assert {s["scan_id"] for s in estate.list_scans("insurance", "duckdb", include_unclassified=False)} == {company["scan_id"]}
+
+    # the admin sees both scans, and the latest one is the company's (narrower) scan
+    assert len(estate.list_scans("insurance", "duckdb", include_unclassified=True)) == 2
+    assert estate.build_report("insurance", "duckdb", admin["scan_id"])["coverage"]["tables"] == 5
+
+
+def test_scan_id_from_another_domain_is_not_readable(synthetic_estate):
+    summary, _ = synthetic_estate()
+    other = estate.build_report("asset_management", "duckdb", summary["scan_id"])
+    assert other["scan"] is None
+
+
+def test_scope_column_migrates_onto_an_existing_scan_table(tmp_path, monkeypatch):
+    db = tmp_path / "old.duckdb"
+    c = duckdb.connect(str(db))
+    c.execute("create schema control")
+    c.execute("""create table control.estate_scan (
+        scan_id varchar primary key, domain varchar, target varchar, status varchar,
+        tier_reached integer, schemas_scanned integer, tables_scanned integer,
+        started_at timestamp, ended_at timestamp, note varchar)""")
+    c.execute("insert into control.estate_scan values ('old000000000', 'insurance', 'duckdb', "
+              "'completed', 3, 6, 48, now(), now(), null)")
+    c.close()
+    monkeypatch.setattr(estate, "sql_connect",
+                        lambda target, platform: SqlConnection(duckdb.connect(str(db)), "duckdb"))
+    estate._SCHEMA_READY.clear()
+    scans = estate.list_scans("insurance", "duckdb")
+    assert scans[0]["scope"] == "domain+unclassified"          # pre-scope scans did include legacy schemas
+    assert estate.list_scans("insurance", "duckdb", include_unclassified=False) == []

@@ -230,6 +230,12 @@ def api_discovery_list(request: Request, domain: str = pipeline.DEFAULT_DOMAIN):
     return {"domain": domain, "profiles": discovery.list_profiles(domain)}
 
 
+def _sees_unclassified(request: Request) -> bool:
+    """Schemas that belong to no domain are admin-only (see emitters/estate.py SCOPE_*). Decided
+    from the logged-in account, never from a request parameter."""
+    return _user_domains(request) == "*"
+
+
 @app.post("/api/estate/scan")
 def api_estate_scan(request: Request, domain: str = Form(...), target: str = Form("duckdb"),
                     tiers: int = Form(4)):
@@ -238,15 +244,17 @@ def api_estate_scan(request: Request, domain: str = Form(...), target: str = For
     _check_domain(request, domain)
     if tiers not in (1, 2, 3, 4):
         raise HTTPException(status_code=400, detail="tiers must be 1, 2, 3 or 4")
-    return estate.start_scan(domain, target, tiers)
+    return estate.start_scan(domain, target, tiers, include_unclassified=_sees_unclassified(request))
 
 
 @app.get("/api/estate/scans")
 def api_estate_scans(request: Request, domain: str = pipeline.DEFAULT_DOMAIN, target: str = "duckdb"):
     _check_domain(request, domain)
+    wide = _sees_unclassified(request)
     try:
-        return {"domain": domain, "running": estate.is_running(domain, target),
-                "scans": estate.list_scans(domain, target)}
+        return {"domain": domain, "includes_unclassified": wide,
+                "running": estate.is_running(domain, target, wide),
+                "scans": estate.list_scans(domain, target, wide)}
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -257,7 +265,7 @@ def api_estate_report(request: Request, domain: str = pipeline.DEFAULT_DOMAIN, t
     """The estate report for one scan -- the latest completed one if no id is given."""
     _check_domain(request, domain)
     try:
-        return estate.report(domain, target, scan_id)
+        return estate.report(domain, target, scan_id, include_unclassified=_sees_unclassified(request))
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

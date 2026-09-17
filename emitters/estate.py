@@ -15,11 +15,12 @@ identical, which is what makes a scan safe to re-run nightly and safe to diff. T
 only place a model's judgement enters, and it enters as a suggestion attached to evidence --
 never as a fact written into a contract.
 
-Scope and tenancy: a scan for `domain` covers that domain's own schemas plus any schema that
-belongs to no known domain at all (genuinely unclassified estate -- this deployment has legacy
-unprefixed bronze/silver/gold schemas that predate the multi-domain migration, and finding them
-is exactly the point). The platform's own `control` schema is never scanned; it is bookkeeping,
-not the customer's data.
+Scope and tenancy: a scan for `domain` covers that domain's own schemas. An admin's scan also
+covers every schema that belongs to no known domain at all (genuinely unclassified estate -- this
+deployment has legacy unprefixed bronze/silver/gold schemas that predate the multi-domain
+migration, and finding them is exactly the point); a company's scan never does, see SCOPE_*.
+Other tenants' schemas are never scanned, and neither is the platform's own `control` schema --
+it is bookkeeping, not the customer's data.
 
 Honest limit on Tier 1: row counts here come from `count(*)` per table, which is fine at this
 deployment's scale (tens of tables) and is NOT what you would do against a 40,000-table estate
@@ -49,7 +50,7 @@ _DDL = [
     """create table if not exists {c}.estate_scan (
         scan_id varchar primary key, domain varchar, target varchar, status varchar,
         tier_reached integer, schemas_scanned integer, tables_scanned integer,
-        started_at timestamp, ended_at timestamp, note varchar)""",
+        started_at timestamp, ended_at timestamp, note varchar, scope varchar)""",
     """create table if not exists {c}.estate_table (
         scan_id varchar, schema_name varchar, table_name varchar, column_count integer,
         row_count bigint, shortlisted boolean, shortlist_reason varchar, classification varchar,
@@ -101,6 +102,21 @@ def _iso_utc(value: Any) -> Any:
 
 _SCHEMA_READY: set[tuple[str, str]] = set()
 
+# Columns added after estate tables already existed on a live control plane. Same check-then-alter
+# approach as control_plane._MIGRATIONS (Databricks has no ADD COLUMN IF NOT EXISTS), appended at
+# the end so positional `insert ... values` stays in DDL order. Scans from before `scope` existed
+# all included unclassified schemas, so that is what they are backfilled as.
+_MIGRATIONS = [("estate_scan", "scope", "varchar", "domain+unclassified")]
+
+# Two scan scopes. Unclassified schemas (belonging to no domain) are admin-only: on this
+# deployment they are the legacy pre-migration copies of insurance data, and a scan run for
+# asset_management was showing Star Investments their table names, row counts and column
+# profiles. A company's scan covers only its own schemas; an admin's also covers the unowned
+# estate. The two are stored as separate scans, so a company login never reads an admin scan's
+# rows at all -- filtering one shared scan at report time would still leak through its counts.
+SCOPE_DOMAIN = "domain"
+SCOPE_ALL = "domain+unclassified"
+
 
 def _con(target: str, domain: str):
     """Schema setup runs once per process per (target, control), not on every connection. A scan
@@ -115,6 +131,11 @@ def _con(target: str, domain: str):
         ensure_control_schema(con, control)
         for stmt in _DDL:
             con.execute(stmt.format(c=control))
+        for table, column, ddl_type, backfill in _MIGRATIONS:
+            cols = {d[0].lower() for d in con.execute(f"select * from {control}.{table} limit 0").description}
+            if column not in cols:
+                con.execute(f"alter table {control}.{table} add column {column} {ddl_type}")
+                con.execute(f"update {control}.{table} set {column} = ? where {column} is null", [backfill])
         _SCHEMA_READY.add((target, control))
     return con, control
 
@@ -124,9 +145,11 @@ def _known_domains() -> list[str]:
     return sorted(p.name for p in d.iterdir() if p.is_dir()) if d.exists() else []
 
 
-def _in_scope(schema: str, domain: str, control_schema: str, known: list[str]) -> tuple[bool, str]:
-    """This domain's own schemas, plus anything belonging to no domain at all. The control
-    schema is the platform's bookkeeping and is never part of a customer's estate."""
+def _in_scope(schema: str, domain: str, control_schema: str, known: list[str],
+              include_unclassified: bool = True) -> tuple[bool, str]:
+    """This domain's own schemas, plus -- for an admin scan only -- anything belonging to no
+    domain at all. The control schema is the platform's bookkeeping and is never part of a
+    customer's estate."""
     s = schema.lower()
     if s == control_schema.lower() or s.startswith("information_schema") or s in ("pg_catalog", "main", "system"):
         return False, ""
@@ -135,7 +158,7 @@ def _in_scope(schema: str, domain: str, control_schema: str, known: list[str]) -
     for other in known:
         if s.startswith(f"{other.lower()}_") or s == other.lower():
             return False, other          # belongs to a different tenant -- not ours to look at
-    return True, "unclassified"
+    return include_unclassified, "unclassified"
 
 
 def _classify_column(name: str) -> str | None:
@@ -148,7 +171,8 @@ def _classify_column(name: str) -> str | None:
 
 # --------------------------------------------------------------------------- tier 1
 
-def _tier1_inventory(con, control: str, scan_id: str, domain: str) -> list[dict[str, Any]]:
+def _tier1_inventory(con, control: str, scan_id: str, domain: str,
+                     include_unclassified: bool = True) -> list[dict[str, Any]]:
     """Catalogue-only structure sweep: every schema, table and column in scope. No sampling."""
     known = _known_domains()
     rows = con.execute(
@@ -158,7 +182,7 @@ def _tier1_inventory(con, control: str, scan_id: str, domain: str) -> list[dict[
 
     tables: dict[tuple[str, str], list[tuple]] = {}
     for schema, table, column, dtype, ordinal in rows:
-        ok, _origin = _in_scope(schema, domain, control, known)
+        ok, _origin = _in_scope(schema, domain, control, known, include_unclassified)
         if not ok:
             continue
         tables.setdefault((schema, table), []).append((column, dtype, ordinal))
@@ -169,7 +193,7 @@ def _tier1_inventory(con, control: str, scan_id: str, domain: str) -> list[dict[
             n = con.execute(f"select count(*) from {schema}.{table}").fetchone()[0]
         except Exception:  # noqa: BLE001 -- a view or permission-denied object still belongs in the census
             n = None
-        _ok, origin = _in_scope(schema, domain, control, known)
+        _ok, origin = _in_scope(schema, domain, control, known, include_unclassified)
         inventory.append({"schema": schema, "table": table, "columns": cols, "row_count": n,
                           "origin": origin, "stats": {}, "shortlist_reason": None,
                           "mirrors": None, "mirror_state": None, "mirror_diff_rows": None,
@@ -610,7 +634,8 @@ def _tier4_enrich(con, control: str, scan_id: str, shortlist: list[dict[str, Any
 # --------------------------------------------------------------------------- entry point
 
 def run_scan(domain: str, target: str = "duckdb", tiers: int = 4,
-             shortlist_size: int = 40, scan_id: str | None = None) -> dict[str, Any]:
+             shortlist_size: int = 40, scan_id: str | None = None,
+             include_unclassified: bool = True) -> dict[str, Any]:
     """Runs the scan and returns its summary. Each tier builds on the one before it, so `tiers`
     stops it early -- tiers=1 is the exhaustive census alone, which is the cheap thing you can
     afford to run against everything. `scan_id` lets a caller that runs this in the background
@@ -620,10 +645,11 @@ def run_scan(domain: str, target: str = "duckdb", tiers: int = 4,
     con, control = _con(target, domain)
     try:
         con.execute(
-            f"insert into {control}.estate_scan values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [scan_id, domain, target, "running", 0, 0, 0, started, None, None],
+            f"insert into {control}.estate_scan values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [scan_id, domain, target, "running", 0, 0, 0, started, None, None,
+             SCOPE_ALL if include_unclassified else SCOPE_DOMAIN],
         )
-        inventory = _tier1_inventory(con, control, scan_id, domain)
+        inventory = _tier1_inventory(con, control, scan_id, domain, include_unclassified)
         schemas = len({i["schema"] for i in inventory})
         reached = 1
         if not inventory:
@@ -634,7 +660,8 @@ def run_scan(domain: str, target: str = "duckdb", tiers: int = 4,
                 f"update {control}.estate_scan set status = ?, tier_reached = ?, ended_at = ?, "
                 f"note = ? where scan_id = ?",
                 ["completed", 1, _utcnow(),
-                 f"no tables found on {target} in {domain}'s schemas or in any unclassified schema "
+                 f"no tables found on {target} in {domain}'s schemas"
+                 f"{' or in any unclassified schema' if include_unclassified else ''} "
                  f"-- nothing has been loaded here yet", scan_id])
             return {"scan_id": scan_id, "domain": domain, "target": target, "status": "completed",
                     "tier_reached": 1, "schemas_scanned": 0, "tables_scanned": 0, "shortlisted": 0,
@@ -708,8 +735,14 @@ def _expected_null(column: str) -> bool:
     return any(p.search(c) for p in _EXPECTED_NULL)
 
 
+def _scope_filter(include_unclassified: bool) -> tuple[str, list[str]]:
+    """SQL predicate on estate_scan.scope for what a viewer may read: an admin reads either
+    scope, a company only its own-schemas scans."""
+    return ("", []) if include_unclassified else (" and scope = ?", [SCOPE_DOMAIN])
+
+
 def build_report(domain: str, target: str = "duckdb", scan_id: str | None = None,
-                 null_threshold: float = 20.0) -> dict[str, Any]:
+                 null_threshold: float = 20.0, include_unclassified: bool = True) -> dict[str, Any]:
     """The estate report for one scan (the latest completed one if none is given).
 
     Everything here is read back from what the scan stored -- nothing is re-derived with a
@@ -722,20 +755,29 @@ def build_report(domain: str, target: str = "duckdb", scan_id: str | None = None
     data the report should exclude, and this has no basis to decide which."""
     con, control = _con(target, domain)
     try:
+        scope_sql, scope_params = _scope_filter(include_unclassified)
         if scan_id is None:
             row = con.execute(
                 f"select scan_id from {control}.estate_scan where domain = ? and target = ? "
-                f"and status = 'completed' order by started_at desc limit 1", [domain, target]
+                f"and status = 'completed'{scope_sql} order by started_at desc limit 1",
+                [domain, target, *scope_params]
             ).fetchone()
             if row is None:
                 return {"domain": domain, "target": target, "scan": None}
             scan_id = row[0]
 
+        # Looked up by id AND domain/target/scope: an id alone would let any login read any
+        # tenant's scan by pasting its id into the URL -- the route's domain check only covers
+        # the `domain` parameter, not what the id points at.
         s = con.execute(
             f"select scan_id, status, tier_reached, schemas_scanned, tables_scanned, started_at, "
-            f"ended_at, note from {control}.estate_scan where scan_id = ?", [scan_id]).fetchone()
+            f"ended_at, note, scope from {control}.estate_scan "
+            f"where scan_id = ? and domain = ? and target = ?{scope_sql}",
+            [scan_id, domain, target, *scope_params]).fetchone()
+        if s is None:
+            return {"domain": domain, "target": target, "scan": None}
         scan = dict(zip(["scan_id", "status", "tier_reached", "schemas_scanned", "tables_scanned",
-                         "started_at", "ended_at", "note"], s))
+                         "started_at", "ended_at", "note", "scope"], s))
         scan["started_at"], scan["ended_at"] = _iso_utc(scan["started_at"]), _iso_utc(scan["ended_at"])
 
         tcols = ["schema_name", "table_name", "column_count", "row_count", "shortlisted",
@@ -907,7 +949,7 @@ def build_report(domain: str, target: str = "duckdb", scan_id: str | None = None
             "open_questions": questions}
 
 
-def close_abandoned(domain: str, target: str, live_scan_id: str | None) -> int:
+def close_abandoned(domain: str, target: str, live_scan_ids: set[str] | frozenset[str] = frozenset()) -> int:
     """A scan whose process died (a restart, a deploy, a killed worker) leaves its row saying
     "running" forever, and the Control Room would spin on it indefinitely. The caller -- the one
     process that runs scans for this deployment -- knows which scan is genuinely live; every other
@@ -917,7 +959,7 @@ def close_abandoned(domain: str, target: str, live_scan_id: str | None) -> int:
         stale = [r[0] for r in con.execute(
             f"select scan_id from {control}.estate_scan "
             f"where domain = ? and target = ? and status = 'running'", [domain, target]).fetchall()
-            if r[0] != live_scan_id]
+            if r[0] not in live_scan_ids]
         for sid in stale:
             con.execute(
                 f"update {control}.estate_scan set status = ?, note = ?, ended_at = ? where scan_id = ?",
@@ -928,16 +970,19 @@ def close_abandoned(domain: str, target: str, live_scan_id: str | None) -> int:
         con.close()
 
 
-def list_scans(domain: str, target: str = "duckdb", limit: int = 10) -> list[dict[str, Any]]:
+def list_scans(domain: str, target: str = "duckdb", limit: int = 10,
+               include_unclassified: bool = True) -> list[dict[str, Any]]:
     con, control = _con(target, domain)
     try:
+        scope_sql, scope_params = _scope_filter(include_unclassified)
         rows = con.execute(
             f"select scan_id, status, tier_reached, schemas_scanned, tables_scanned, "
-            f"started_at, ended_at, note from {control}.estate_scan "
-            f"where domain = ? and target = ? order by started_at desc", [domain, target]
+            f"started_at, ended_at, note, scope from {control}.estate_scan "
+            f"where domain = ? and target = ?{scope_sql} order by started_at desc",
+            [domain, target, *scope_params]
         ).fetchall()
         keys = ["scan_id", "status", "tier_reached", "schemas_scanned", "tables_scanned",
-                "started_at", "ended_at", "note"]
+                "started_at", "ended_at", "note", "scope"]
         scans = [dict(zip(keys, r)) for r in rows][:limit]
         for sc in scans:
             sc["started_at"], sc["ended_at"] = _iso_utc(sc["started_at"]), _iso_utc(sc["ended_at"])

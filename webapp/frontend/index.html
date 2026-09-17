@@ -1266,7 +1266,8 @@ function estateOverviewHtml(r){
 
   return `<div class="e-tiles">
       <div class="e-tile"><div class="lab">Schemas</div><div class="val">${fmtNum(c.schemas)}</div>
-        <div class="ft">${c.unclassified_schemas.length ? `${c.unclassified_schemas.length} belong to no domain` : 'all owned by a domain'}</div></div>
+        <div class="ft">${r.scan.scope === 'domain' ? `${esc(currentDomain)}'s own schemas`
+          : c.unclassified_schemas.length ? `${c.unclassified_schemas.length} belong to no domain` : 'all owned by a domain'}</div></div>
       <div class="e-tile"><div class="lab">Tables inventoried</div><div class="val">${fmtNum(c.tables)}</div>
         <div class="ft">${fmtNum(c.columns)} columns · ${fmtNum(c.rows)} rows</div></div>
       <div class="e-tile"><div class="lab">Sensitive columns</div><div class="val" style="color:var(--warning)">${fmtNum(r.sensitivity.total)}</div>

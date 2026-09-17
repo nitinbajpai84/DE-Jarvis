@@ -6,9 +6,13 @@ runs the scan on a background thread; the Control Room polls the scan's status r
 control plane, which the scan itself keeps current. Same "the database is the source of truth
 the UI polls" model agent_runs.py already uses for agent runs.
 
-One scan per (domain, target) at a time. A second click while one is running is refused rather
-than queued: two scans over the same estate would contend for the same DuckDB file for no
+One scan per (domain, target, scope) at a time. A second click while one is running is refused
+rather than queued: two scans over the same estate would contend for the same DuckDB file for no
 benefit, and the second would report nothing the first won't.
+
+Scope follows the login: an admin's scan includes unclassified schemas (estate no domain owns),
+a company's does not -- see emitters/estate.py SCOPE_*. Every function here takes
+`include_unclassified`, and main.py sets it from the account, never from the request.
 """
 from __future__ import annotations
 
@@ -24,12 +28,12 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from emitters import estate as estate_mod  # noqa: E402
 
-_RUNNING: dict[tuple[str, str], str] = {}
+_RUNNING: dict[tuple[str, str, bool], str] = {}
 _LOCK = threading.Lock()
 
 
-def start_scan(domain: str, target: str, tiers: int = 4) -> dict[str, Any]:
-    key = (domain, target)
+def start_scan(domain: str, target: str, tiers: int = 4, include_unclassified: bool = False) -> dict[str, Any]:
+    key = (domain, target, include_unclassified)
     with _LOCK:
         if key in _RUNNING:
             return {"started": False, "scan_id": _RUNNING[key],
@@ -39,7 +43,8 @@ def start_scan(domain: str, target: str, tiers: int = 4) -> dict[str, Any]:
 
     def _run():
         try:
-            estate_mod.run_scan(domain, target, tiers=tiers, scan_id=scan_id)
+            estate_mod.run_scan(domain, target, tiers=tiers, scan_id=scan_id,
+                                include_unclassified=include_unclassified)
         except Exception:  # noqa: BLE001 -- run_scan already records the failure on its own row
             traceback.print_exc()
         finally:
@@ -50,17 +55,21 @@ def start_scan(domain: str, target: str, tiers: int = 4) -> dict[str, Any]:
     return {"started": True, "scan_id": scan_id}
 
 
-def is_running(domain: str, target: str) -> str | None:
+def is_running(domain: str, target: str, include_unclassified: bool = False) -> str | None:
     with _LOCK:
-        return _RUNNING.get((domain, target))
+        return _RUNNING.get((domain, target, include_unclassified))
 
 
-def list_scans(domain: str, target: str) -> list[dict[str, Any]]:
+def list_scans(domain: str, target: str, include_unclassified: bool = False) -> list[dict[str, Any]]:
     # This process is the only thing that runs scans for the Control Room, so any "running" row
     # it isn't actually running was orphaned by a restart and is closed before being shown.
-    estate_mod.close_abandoned(domain, target, is_running(domain, target))
-    return estate_mod.list_scans(domain, target)
+    # Every live scan for this domain/target counts, whichever scope it was started with.
+    with _LOCK:
+        live = {sid for (d, t, _scope), sid in _RUNNING.items() if d == domain and t == target}
+    estate_mod.close_abandoned(domain, target, live)
+    return estate_mod.list_scans(domain, target, include_unclassified=include_unclassified)
 
 
-def report(domain: str, target: str, scan_id: str | None = None) -> dict[str, Any]:
-    return estate_mod.build_report(domain, target, scan_id)
+def report(domain: str, target: str, scan_id: str | None = None,
+           include_unclassified: bool = False) -> dict[str, Any]:
+    return estate_mod.build_report(domain, target, scan_id, include_unclassified=include_unclassified)
