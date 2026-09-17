@@ -1,18 +1,28 @@
-"""Phase 1 of the agent memory layer: durable, retrievable facts an agent has learned across
-conversations, so a new chat with Mr. Program Manager or The Master Architect doesn't start from
-zero every time. Deliberately built on the platform's own control plane (DuckDB/Databricks)
-rather than a new graph database -- the actual need (store a fact, retrieve what's relevant to a
-new question) is well served by a table plus a semantic-similarity read, and every other
-subsystem in this project already lives in the control schema next to run_registry/incident_
-ticket/etc. Adding a dedicated graph DB would be new infrastructure this project doesn't need
-yet, not a better fit for what "the agent remembers" actually requires here.
+"""Long-term agent memory: durable, retrievable facts an agent has learned across conversations,
+so a new chat with The Delivery Lead or The Chief Architect doesn't start from zero every time.
 
-A memory row is written at a concrete, high-confidence moment -- when a catalogue_chat
-conversation actually produces a structured suggestion, not from every casual turn -- and read
-back via cosine similarity over Gemini embeddings, computed in Python rather than a vector index
-(memory volume per domain is small; a full scan is the honest, simple choice at this scale, not
-a shortcut). A human can see and delete what's been remembered -- see list_memory/forget -- so
-this is never a black box.
+The three layers an agent draws on, and where each lives:
+  short-term   the conversation itself and its rolling summary     emitters/agent_sessions.py
+  long-term    what it has learned about this company, across chats  this module
+  context      what the platform's records say right now             emitters/agent_context.py
+
+Scope. Facts, decisions and preferences belong to the whole team (stored under agent "team"):
+a decision agreed with The Data Detective must be known to The Delivery Lead -- on a real run it
+wasn't, and the Delivery Lead answered "I don't recall any agreement". Corrections stay with the
+agent that was corrected. recall() reads an agent's own memories plus the team's.
+
+Each memory has a kind, because they are used differently:
+  fact        something true about this company that no record holds ("claims close monthly")
+  decision    something the team agreed ("exclude orphaned agent rows from the dashboard")
+  preference  how this company wants things done ("show amounts in SGD thousands")
+  correction  where a human told the agent it was wrong, so the mistake doesn't come back
+
+Deliberately built on the platform's own control plane rather than a new graph database or
+vector store -- the need (store a fact, retrieve what's relevant to a new question) is served by a
+table plus a semantic-similarity read, and every other subsystem already lives in the control
+schema. Retrieval is cosine similarity over Gemini embeddings computed in Python: memory volume
+per company is small, so a full scan is the honest, simple choice at this scale. A human can see
+and delete everything remembered (list_memory / forget) -- never a black box.
 """
 from __future__ import annotations
 
@@ -21,6 +31,7 @@ import json
 import math
 import pathlib
 import sys
+import threading
 from typing import Any
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -38,9 +49,28 @@ create table if not exists {control}.agent_memory (
     content      varchar,
     source       varchar,
     embedding    varchar,
-    created_at   timestamp
+    created_at   timestamp,
+    kind         varchar,
+    session_id   varchar
 )
 """
+
+KINDS = ("fact", "decision", "preference", "correction")
+TEAM = "team"
+TEAM_KINDS = ("fact", "decision", "preference")
+
+
+def scope_for(agent: str, kind: str) -> str:
+    """Which memory a new memory is filed under: the team's, or only this agent's."""
+    return TEAM if kind in TEAM_KINDS else agent
+
+
+# Columns added after the table already existed on live control planes: check-then-alter, the
+# same approach as estate._MIGRATIONS (Databricks has no ADD COLUMN IF NOT EXISTS). Memories from
+# before kinds existed were all drafts a conversation proposed -- facts.
+_MIGRATIONS = [("kind", "varchar", "fact"), ("session_id", "varchar", None)]
+_READY: set[tuple[str, str]] = set()
+_LOCK = threading.Lock()
 
 _EMBED_MODEL = "models/gemini-embedding-001"
 
@@ -54,9 +84,27 @@ def _con(target: str, domain: str):
     platform = _load_platform(target)
     control = resolve_schema(platform, domain, "control")
     con = sql_connect(target, platform)
-    ensure_control_schema(con, control)
-    con.execute(_DDL.format(control=control))
+    if (target, control) not in _READY:
+        with _LOCK:   # serialised: concurrent first-use DDL conflicts on DuckDB (see estate._con)
+            if (target, control) not in _READY:
+                ensure_control_schema(con, control)
+                con.execute(_DDL.format(control=control))
+                cols = {d[0].lower() for d in con.execute(f"select * from {control}.agent_memory limit 0").description}
+                for column, ddl_type, backfill in _MIGRATIONS:
+                    if column not in cols:
+                        con.execute(f"alter table {control}.agent_memory add column {column} {ddl_type}")
+                        if backfill is not None:
+                            con.execute(f"update {control}.agent_memory set {column} = ? where {column} is null", [backfill])
+                _READY.add((target, control))
     return con, control
+
+
+def _iso_utc(value: Any) -> Any:
+    """Stored as naive UTC; sent with an explicit Z so a browser doesn't read it as local time
+    (the same "8h ago" bug the estate scan had -- see estate._utcnow)."""
+    if isinstance(value, _dt.datetime):
+        return (value.astimezone(_dt.timezone.utc).replace(tzinfo=None) if value.tzinfo else value).isoformat() + "Z"
+    return value
 
 
 def _embed(text: str) -> list[float]:
@@ -72,21 +120,24 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb) if na and nb else 0.0
 
 
-def remember(domain: str, agent: str, subject: str, content: str, source: str, target: str = "duckdb") -> int:
-    """Writes one durable fact. Retry-safe id assignment -- same jittered-backoff pattern as
+def remember(domain: str, agent: str, subject: str, content: str, source: str, target: str = "duckdb",
+             kind: str = "fact", session_id: str | None = None, embedding: list[float] | None = None) -> int:
+    """Writes one durable memory. Retry-safe id assignment -- same jittered-backoff pattern as
     raise_ticket/log_sdlc_stage, proven necessary by a real Phase C bug, not theoretical."""
     import random
     import time
+    if kind not in KINDS:
+        raise ValueError(f"kind must be one of {KINDS}")
     con, control = _con(target, domain)
     try:
-        embedding = json.dumps(_embed(f"{subject}\n{content}"))
-        now = _dt.datetime.now(_dt.timezone.utc)
+        vector = json.dumps(embedding if embedding is not None else _embed(f"{subject}\n{content}"))
+        now = _dt.datetime.now(_dt.timezone.utc).replace(tzinfo=None)
         for attempt in range(5):
             try:
                 memory_id = con.execute(f"select coalesce(max(memory_id), 0) + 1 from {control}.agent_memory").fetchone()[0]
                 con.execute(
-                    f"insert into {control}.agent_memory values (?, ?, ?, ?, ?, ?, ?, ?)",
-                    [memory_id, domain, agent, subject, content, source, embedding, now],
+                    f"insert into {control}.agent_memory values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [memory_id, domain, agent, subject, content, source, vector, now, kind, session_id],
                 )
                 return memory_id
             except Exception:  # noqa: BLE001 -- retry on a concurrent-insert conflict; re-raise otherwise
@@ -97,48 +148,50 @@ def remember(domain: str, agent: str, subject: str, content: str, source: str, t
         con.close()
 
 
-def recall(domain: str, agent: str, query: str, k: int = 5, target: str = "duckdb") -> list[dict[str, Any]]:
-    """Every memory for this domain+agent, ranked by semantic similarity to `query`. Returns []
-    (not an error) when there's nothing on record yet -- a new domain's first conversation is a
-    real, expected case, not a failure."""
+def recall(domain: str, agent: str, query: str, k: int = 5, target: str = "duckdb",
+           query_vec: list[float] | None = None, min_score: float = 0.0) -> list[dict[str, Any]]:
+    """This company's memories for this agent, ranked by semantic similarity to `query`. Returns
+    [] (not an error) when nothing is on record -- a first conversation is a real, expected case.
+    `query_vec` lets a caller that already embedded the query avoid paying for it twice."""
     con, control = _con(target, domain)
     try:
         rows = con.execute(
-            f"select memory_id, subject, content, source, embedding, created_at from {control}.agent_memory "
-            f"where domain = ? and agent = ? order by created_at desc",
-            [domain, agent],
+            f"select memory_id, subject, content, source, embedding, created_at, kind, agent from {control}.agent_memory "
+            f"where domain = ? and agent in (?, ?) order by created_at desc",
+            [domain, agent, TEAM],
         ).fetchall()
     finally:
         con.close()
     if not rows:
         return []
-    query_vec = _embed(query)
+    query_vec = query_vec if query_vec is not None else _embed(query)
     scored = []
-    for memory_id, subject, content, source, embedding, created_at in rows:
+    for memory_id, subject, content, source, embedding, created_at, kind, owner in rows:
         score = _cosine(query_vec, json.loads(embedding))
-        scored.append({"memory_id": memory_id, "subject": subject, "content": content,
-                       "source": source, "created_at": created_at, "score": round(score, 4)})
+        if score < min_score:
+            continue
+        scored.append({"memory_id": memory_id, "subject": subject, "content": content, "kind": kind or "fact",
+                       "source": source, "created_at": _iso_utc(created_at), "score": round(score, 4),
+                       "scope": "team" if owner == TEAM else "agent"})
     scored.sort(key=lambda r: r["score"], reverse=True)
     return scored[:k]
 
 
 def list_memory(domain: str, agent: str | None = None, target: str = "duckdb") -> list[dict[str, Any]]:
+    """With an agent: what that agent recalls from -- its own memories and the team's."""
     con, control = _con(target, domain)
+    cols = "memory_id, agent, subject, content, source, created_at, kind, session_id"
     try:
         if agent:
             rows = con.execute(
-                f"select memory_id, agent, subject, content, source, created_at from {control}.agent_memory "
-                f"where domain = ? and agent = ? order by created_at desc",
-                [domain, agent],
-            ).fetchall()
+                f"select {cols} from {control}.agent_memory where domain = ? and agent in (?, ?) order by created_at desc",
+                [domain, agent, TEAM]).fetchall()
         else:
             rows = con.execute(
-                f"select memory_id, agent, subject, content, source, created_at from {control}.agent_memory "
-                f"where domain = ? order by created_at desc",
-                [domain],
-            ).fetchall()
-        return [{"memory_id": r[0], "agent": r[1], "subject": r[2], "content": r[3],
-                "source": r[4], "created_at": r[5]} for r in rows]
+                f"select {cols} from {control}.agent_memory where domain = ? order by created_at desc",
+                [domain]).fetchall()
+        return [{"memory_id": r[0], "agent": r[1], "subject": r[2], "content": r[3], "source": r[4],
+                 "created_at": _iso_utc(r[5]), "kind": r[6] or "fact", "session_id": r[7]} for r in rows]
     finally:
         con.close()
 

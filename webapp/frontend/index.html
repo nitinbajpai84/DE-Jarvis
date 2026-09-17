@@ -476,6 +476,61 @@
   .chat-mic{flex:none;width:38px;height:38px;border-radius:8px;border:1px solid var(--border);background:var(--bg-panel-2);
            color:var(--text-secondary);cursor:pointer;font-size:15px;}
   .chat-mic.recording{background:var(--critical-soft);border-color:var(--critical);color:var(--critical);animation:blink 1.2s infinite;}
+  /* the team drawer: agents with a brain, context and memory */
+  .team-drawer{position:fixed;top:0;right:0;bottom:0;width:min(520px,100vw);z-index:60;background:var(--bg-panel);
+    border-left:1px solid var(--border);box-shadow:-12px 0 40px rgba(13,27,42,.12);display:flex;flex-direction:column;
+    padding:16px 18px calc(12px + env(safe-area-inset-bottom,0px));gap:10px;}
+  .team-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;}
+  .team-head h2{margin:0;font-size:17px;}
+  .team-sub{font-size:11.5px;color:var(--text-muted);margin-top:2px;}
+  .team-agents{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;}
+  .team-agent{flex:none;display:flex;gap:6px;align-items:center;border:1px solid var(--border);background:var(--bg-panel-2);
+    border-radius:20px;padding:4px 10px 4px 5px;font:inherit;font-size:11.5px;color:var(--text-secondary);cursor:pointer;}
+  .team-agent i{width:18px;height:18px;border-radius:50%;display:inline-grid;place-items:center;font-style:normal;
+    font-size:9px;font-weight:700;color:#fff;}
+  .team-agent.on{border-color:var(--accent-line);background:var(--accent-soft);color:var(--text-primary);}
+  .team-agent:focus-visible,.team-tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
+  .team-card{border:1px solid var(--border-soft);border-radius:10px;padding:10px 12px;background:var(--bg-panel-2);font-size:12px;}
+  .team-card b{font-size:13.5px;color:var(--text-primary);}
+  .team-card .purpose{color:var(--text-secondary);margin:3px 0 6px;line-height:1.45;}
+  .team-card .brain{font-family:'IBM Plex Mono';font-size:10.5px;color:var(--text-muted);}
+  .team-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border-soft);}
+  .team-tabs button{background:none;border:none;border-bottom:2px solid transparent;padding:6px 8px;font:inherit;font-size:12px;
+    color:var(--text-muted);cursor:pointer;}
+  .team-tabs button.on{color:var(--text-primary);border-bottom-color:var(--accent);}
+  .team-body{flex:1;min-height:0;display:flex;flex-direction:column;}
+  .team-body section{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;overflow-y:auto;}
+  .team-body section[hidden]{display:none;}
+  .team-session-row select{width:100%;background:var(--bg-panel-2);border:1px solid var(--border);border-radius:8px;padding:6px 8px;
+    font:inherit;font-size:12px;color:var(--text-primary);}
+  .team-log{flex:1;min-height:120px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-right:2px;}
+  .team-log:empty::after{content:'Ask this agent anything about your data. It answers from your records and cites them.';
+    color:var(--text-muted);font-size:12.5px;}
+  .trace{align-self:flex-start;max-width:92%;font-size:11.5px;color:var(--text-muted);}
+  .chat-bubble.agent-md{white-space:normal;}
+  .agent-md p{margin:0 0 6px;}
+  .agent-md p:last-child,.agent-md ul:last-child{margin-bottom:0;}
+  .agent-md ul{margin:0 0 6px;padding-left:18px;}
+  .agent-md li{margin:2px 0;}
+  .agent-md code{font-family:'IBM Plex Mono';font-size:11.5px;background:var(--bg-raised);padding:0 4px;border-radius:4px;color:var(--text-primary);}
+  .agent-md .cite{font-family:'IBM Plex Mono';font-size:10px;background:var(--accent-soft);color:var(--accent-ink);padding:0 4px;border-radius:4px;vertical-align:1px;}
+  .trace summary{cursor:pointer;font-family:'IBM Plex Mono';font-size:10.5px;}
+  .trace-grid{margin-top:6px;border:1px solid var(--border-soft);border-radius:9px;background:var(--bg-panel-2);padding:8px 10px;
+    display:grid;grid-template-columns:92px minmax(0,1fr);gap:5px 10px;}
+  .trace-grid dt{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);padding-top:1px;}
+  .trace-grid dd{margin:0;color:var(--text-secondary);font-size:11.5px;overflow-wrap:anywhere;}
+  .trace-grid code{font-family:'IBM Plex Mono';font-size:10.5px;background:var(--bg-raised);padding:0 4px;border-radius:4px;}
+  .trace-grid .cited{background:var(--accent-soft);color:var(--accent-ink);}
+  .team-sees .sec{border:1px solid var(--border-soft);border-radius:9px;margin-bottom:8px;}
+  .team-sees .sec h4{margin:0;padding:7px 10px;font-size:12px;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--border-soft);}
+  .team-sees pre{margin:0;padding:8px 10px;font-family:'IBM Plex Mono';font-size:10.5px;white-space:pre-wrap;color:var(--text-secondary);
+    max-height:220px;overflow-y:auto;}
+  .kind-chip{font-family:'IBM Plex Mono';font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;padding:1px 6px;border-radius:10px;
+    background:var(--bg-raised);color:var(--text-secondary);}
+  .kind-chip.decision{background:var(--accent-soft);color:var(--accent-ink);}
+  .kind-chip.correction{background:var(--critical-soft);color:var(--critical);}
+  .kind-chip.preference{background:var(--violet-soft);color:var(--violet);}
+  @media (max-width:560px){.team-drawer{padding-left:16px;padding-right:16px;}}
   .diagram-tabs{display:flex;gap:8px;}
   .diagram-tabs .btn.active{background:var(--accent-soft);border-color:var(--accent);color:var(--text-primary);}
   .diagram-svg-wrap{overflow-x:auto;background:var(--bg-panel-2);border:1px solid var(--border-soft);border-radius:10px;padding:14px;}
@@ -655,6 +710,7 @@
     <select id="domain"></select>
     <select id="target"></select>
     <div class="conn-pills" id="connPills"></div>
+    <button class="btn primary" id="teamBtn" onclick="openTeam()" aria-controls="teamDrawer" aria-expanded="false">Talk to the team</button>
     <button class="btn ghost" id="logoutBtn" style="display:none;" onclick="doLogout()">Sign out</button>
   </div>
 </div>
@@ -668,6 +724,36 @@
 </div>
 
 <input type="file" id="fileInput" accept=".xlsx">
+
+<aside class="team-drawer" id="teamDrawer" hidden aria-label="The team">
+  <div class="team-head">
+    <div><h2>The team</h2><div class="team-sub">Each agent thinks with Gemini, reads <span id="teamDomain">this company</span>'s records, and remembers what you tell it</div></div>
+    <button class="btn ghost sm" onclick="closeTeam()" aria-label="Close the team panel">Close</button>
+  </div>
+  <div class="team-agents" id="teamAgents" role="tablist"></div>
+  <div class="team-card" id="teamCard"></div>
+  <div class="team-tabs" role="tablist">
+    <button class="on" data-tt="chat" onclick="switchTeamTab('chat')">Conversation</button>
+    <button data-tt="sees" onclick="switchTeamTab('sees')">What it sees</button>
+    <button data-tt="remembers" onclick="switchTeamTab('remembers')">What it remembers</button>
+  </div>
+  <div class="team-body">
+    <section data-tp="chat">
+      <div class="team-session-row">
+        <select id="teamSession" onchange="selectTeamSession(this.value)" aria-label="Conversation"></select>
+      </div>
+      <div class="team-log" id="teamLog"></div>
+      <div class="chat-input-row">
+        <textarea id="chatInput-team" placeholder="Ask about sources, gaps, quality…"
+                  onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendTeamMessage();}"></textarea>
+        <button class="chat-mic" id="chatMic-team" type="button" onclick="toggleChatMic('team')" title="Speak instead of typing">🎤</button>
+        <button class="btn primary" id="teamSend" onclick="sendTeamMessage()">Send</button>
+      </div>
+    </section>
+    <section data-tp="sees" hidden><div id="teamSees" class="team-sees"></div></section>
+    <section data-tp="remembers" hidden><div id="teamRemembers"></div></section>
+  </div>
+</aside>
 
 <script>
 /* ============================== helpers ============================== */
@@ -2587,6 +2673,227 @@ async function forgetMemory(memoryId){
   await loadMemoryUI();
 }
 window.forgetMemory = forgetMemory;
+
+/* ============================== the team: agents with a brain, context and memory ============================== */
+const teamState = {agents: [], slug: 'detective', sessionId: null, tab: 'chat', sending: false};
+
+async function openTeam(slug){
+  const d = document.getElementById('teamDrawer');
+  d.hidden = false;
+  document.getElementById('teamBtn').setAttribute('aria-expanded', 'true');
+  document.getElementById('teamDomain').textContent = currentDomain;
+  if (!SPEECH_RECOGNITION) document.getElementById('chatMic-team').hidden = true;
+  if (teamState.domain && teamState.domain !== currentDomain) teamState.sessionId = null;   // conversations belong to one company
+  teamState.domain = currentDomain;
+  if (!teamState.agents.length) {
+    try {
+      const r = await api('/api/agents');
+      teamState.agents = (await r.json()).agents;
+    } catch (e) {
+      document.getElementById('teamCard').innerHTML = `<span class="rv-note">Could not load the team: ${esc(e.message)}</span>`;
+      return;
+    }
+  }
+  await selectTeamAgent(slug || teamState.slug);
+}
+window.openTeam = openTeam;
+
+function closeTeam(){
+  document.getElementById('teamDrawer').hidden = true;
+  document.getElementById('teamBtn').setAttribute('aria-expanded', 'false');
+}
+window.closeTeam = closeTeam;
+
+function initials(persona){ return persona.replace(/^The /, '').split(' ').map(w => w[0]).join('').slice(0, 2); }
+
+async function selectTeamAgent(slug){
+  teamState.slug = slug;
+  teamState.sessionId = null;
+  const a = teamState.agents.find(x => x.slug === slug);
+  document.getElementById('teamAgents').innerHTML = teamState.agents.map(x => `<button class="team-agent ${x.slug === slug ? 'on' : ''}"
+      role="tab" aria-selected="${x.slug === slug}" onclick="selectTeamAgent('${x.slug}')"><i style="background:${esc(x.colour)}">${esc(initials(x.persona))}</i>${esc(x.persona.replace(/^The /, ''))}</button>`).join('');
+  document.getElementById('teamCard').innerHTML = `<b>${esc(a.persona)}</b> <span class="rv-ver">${esc(a.role)}</span>
+    <div class="purpose">${esc(a.purpose)}</div>
+    <div class="brain">brain ${esc(a.model)} · reads ${a.context_sections.map(esc).join(', ')} · ${a.tools.length} read-only tools</div>`;
+  document.getElementById('teamLog').innerHTML = '';
+  await loadTeamSessions();
+  switchTeamTab(teamState.tab);
+}
+window.selectTeamAgent = selectTeamAgent;
+
+function switchTeamTab(tab){
+  teamState.tab = tab;
+  document.querySelectorAll('.team-tabs button').forEach(b => b.classList.toggle('on', b.dataset.tt === tab));
+  document.querySelectorAll('.team-body section').forEach(sec => { sec.hidden = sec.dataset.tp !== tab; });
+  if (tab === 'sees') loadTeamSees();
+  if (tab === 'remembers') loadTeamRemembers();
+}
+window.switchTeamTab = switchTeamTab;
+
+async function loadTeamSessions(){
+  const sel = document.getElementById('teamSession');
+  try {
+    const r = await api(`/api/agents/${teamState.slug}/sessions?domain=${encodeURIComponent(currentDomain)}`);
+    const j = await r.json();
+    sel.innerHTML = `<option value="">New conversation</option>` + j.sessions.map(x =>
+      `<option value="${esc(x.session_id)}" ${x.session_id === teamState.sessionId ? 'selected' : ''}>${esc(x.title)} · ${x.message_count} messages · ${timeAgo(x.updated_at)}</option>`).join('');
+  } catch (e) {
+    sel.innerHTML = `<option value="">New conversation</option>`;
+  }
+}
+
+async function selectTeamSession(sid){
+  teamState.sessionId = sid || null;
+  const log = document.getElementById('teamLog');
+  log.innerHTML = '';
+  if (!sid) return;
+  try {
+    const r = await api(`/api/agents/${teamState.slug}/sessions/${encodeURIComponent(sid)}?domain=${encodeURIComponent(currentDomain)}`);
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    log.innerHTML = j.messages.map(m => teamBubbleHtml(m.role, m.content) + (m.trace ? traceHtml(m.trace) : '')).join('');
+    log.scrollTop = log.scrollHeight;
+  } catch (e) {
+    log.innerHTML = chatBubbleHtml('assistant', 'Could not open that conversation: ' + e.message);
+  }
+}
+window.selectTeamSession = selectTeamSession;
+
+/* Agents answer in plain text, but Gemini reaches for markdown anyway. Rather than show raw
+   asterisks, render the small safe subset -- bold, inline code, bullet lines -- from ALREADY-ESCAPED
+   text, so nothing the model writes can inject markup. Citation ids get a quiet highlight. */
+function agentTextHtml(text){
+  const lines = esc(text).split(/\r?\n/);
+  let html = '', inList = false;
+  for (const raw of lines) {
+    const m = raw.match(/^\s*(?:[*\-•]|\d+\.)\s+(.*)$/);
+    const line = (m ? m[1] : raw)
+      .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\[([A-Z]\d{1,6})\]/g, '<span class="cite">$1</span>');
+    if (m) { if (!inList) { html += '<ul>'; inList = true; } html += `<li>${line}</li>`; continue; }
+    if (inList) { html += '</ul>'; inList = false; }
+    html += line.trim() ? `<p>${line}</p>` : '';
+  }
+  return html + (inList ? '</ul>' : '');
+}
+
+function teamBubbleHtml(role, text){
+  return role === 'user' ? chatBubbleHtml('user', text) : `<div class="chat-bubble assistant agent-md">${agentTextHtml(text)}</div>`;
+}
+
+function traceHtml(t){
+  const cited = new Set(t.cited || []);
+  const secs = ms => ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : ms + 'ms';
+  const bits = [secs(t.timings_ms?.total || 0)];
+  if ((t.tools || []).length) bits.push(`${t.tools.length} tool${t.tools.length === 1 ? '' : 's'}`);
+  if ((t.memories_recalled || []).length) bits.push(`${t.memories_recalled.length} recalled`);
+  if ((t.memories_saved || []).length) bits.push(`${t.memories_saved.length} remembered`);
+  const ctx = (t.context || []).map(c => `<code class="${cited.has(c.id) ? 'cited' : ''}">${esc(c.id)}</code> ${esc(c.title)}${c.ok ? '' : ' (unavailable)'}`).join(' · ');
+  const tools = (t.tools || []).map(x => `<code>${esc(x.name)}</code>(${esc(Object.values(x.args || {}).join(', '))}) ${x.ok ? '' : 'failed '}${secs(x.ms)}`).join('<br>') || 'none needed';
+  const recalled = (t.memories_recalled || []).map(m => `<code class="${cited.has('M' + m.memory_id) ? 'cited' : ''}">M${m.memory_id}</code> <span class="kind-chip ${esc(m.kind)}">${esc(m.kind)}</span> ${esc(m.subject)} <span class="rv-ver">${m.scope === 'team' ? 'team' : 'own'} · ${m.score}</span>`).join('<br>') || 'nothing relevant';
+  const skipped = t.memories_skipped || [];
+  const dupes = skipped.filter(x => x.duplicate_of).length, ungrounded = skipped.filter(x => x.reason).length;
+  const saved = [(t.memories_saved || []).map(m => `<span class="kind-chip ${esc(m.kind)}">${esc(m.kind)}</span> ${esc(m.content)} <span class="rv-ver">${m.scope === 'team' ? 'for the whole team' : 'this agent only'}</span>`).join('<br>'),
+    dupes ? `${dupes} already known, not duplicated` : '',
+    ungrounded ? `${ungrounded} not kept: not in your own words` : ''].filter(Boolean).join('<br>') || 'nothing new';
+  const st = t.short_term || {};
+  return `<details class="trace"><summary>How I answered · ${bits.join(' · ')}</summary><dl class="trace-grid">
+    <dt>Brain</dt><dd>${esc(t.model)} · ${fmtNum(t.usage?.input_tokens)} tokens in, ${fmtNum(t.usage?.output_tokens)} out</dd>
+    <dt>This chat</dt><dd>last ${st.recent_messages} messages verbatim${st.summary_used ? ' + a summary of earlier ones' : ''}</dd>
+    <dt>Context</dt><dd>${ctx || 'none'}${(t.citations_unverified || []).length ? `<br><span class="sev medium">unverified</span> cited ${t.citations_unverified.map(c => `<code>${esc(c)}</code>`).join(' ')} but was given nothing with that id` : ''}</dd>
+    <dt>Tools</dt><dd>${tools}</dd>
+    <dt>Recalled</dt><dd>${recalled}</dd>
+    <dt>Remembered</dt><dd>${saved}</dd>
+    ${(t.errors || []).length ? `<dt>Problems</dt><dd>${t.errors.map(esc).join('<br>')}</dd>` : ''}
+  </dl></details>`;
+}
+
+async function sendTeamMessage(){
+  if (teamState.sending) return;
+  if (teamState.domain !== currentDomain) { await openTeam(teamState.slug); }
+  const input = document.getElementById('chatInput-team');
+  const text = input.value.trim();
+  if (!text) return;
+  const log = document.getElementById('teamLog');
+  const a = teamState.agents.find(x => x.slug === teamState.slug);
+  log.insertAdjacentHTML('beforeend', chatBubbleHtml('user', text));
+  input.value = '';
+  log.insertAdjacentHTML('beforeend', `<div class="chat-bubble assistant" id="teamThinking">${esc(a.persona)} is reading your records…</div>`);
+  log.scrollTop = log.scrollHeight;
+  teamState.sending = true;
+  document.getElementById('teamSend').disabled = true;
+  try {
+    const r = await api(`/api/agents/${teamState.slug}/chat`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({domain: currentDomain, message: text, session_id: teamState.sessionId, target: currentTarget})});
+    const j = await r.json();
+    document.getElementById('teamThinking')?.remove();
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    teamState.sessionId = j.session_id;
+    log.insertAdjacentHTML('beforeend', teamBubbleHtml('assistant', j.reply) + traceHtml(j.trace));
+    log.scrollTop = log.scrollHeight;
+    loadTeamSessions();
+  } catch (e) {
+    document.getElementById('teamThinking')?.remove();
+    log.insertAdjacentHTML('beforeend', chatBubbleHtml('assistant', e.message));
+  } finally {
+    teamState.sending = false;
+    document.getElementById('teamSend').disabled = false;
+  }
+}
+window.sendTeamMessage = sendTeamMessage;
+
+async function loadTeamSees(){
+  const host = document.getElementById('teamSees');
+  host.innerHTML = `<div class="rv-note">Building the context pack…</div>`;
+  try {
+    const r = await api(`/api/agents/${teamState.slug}/context?domain=${encodeURIComponent(currentDomain)}&target=${encodeURIComponent(currentTarget)}`);
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    host.innerHTML = `<div class="rv-note" style="margin-bottom:8px;">Rebuilt from ${esc(currentDomain)}'s records on every message, in this order. Replies cite these ids.</div>` +
+      j.items.map(i => `<div class="sec"><h4><code>${esc(i.id)}</code>${esc(i.title)}${i.ok ? '' : ' <span class="sev high">unavailable</span>'}<span class="rv-ver" style="margin-left:auto;">${fmtNum(i.chars)} chars</span></h4><pre>${esc(i.text)}</pre></div>`).join('');
+  } catch (e) {
+    host.innerHTML = `<div class="rv-note">Could not build the context: ${esc(e.message)}</div>`;
+  }
+}
+
+async function loadTeamRemembers(){
+  const host = document.getElementById('teamRemembers');
+  host.innerHTML = `<div class="rv-note">Loading…</div>`;
+  let shortTerm = `<div class="rv-note">No conversation open. Short-term memory is the open conversation: its last 8 messages word for word, and a rolling summary of anything older.</div>`;
+  if (teamState.sessionId) {
+    try {
+      const r = await api(`/api/agents/${teamState.slug}/sessions/${encodeURIComponent(teamState.sessionId)}?domain=${encodeURIComponent(currentDomain)}`);
+      const j = await r.json();
+      const sn = j.session;
+      shortTerm = `<div class="rv-note">${sn.message_count} messages in this conversation. The agent reads the last 8 word for word${sn.summary ? ', plus this summary of the ' + sn.summarized_upto + ' before them:' : '. Nothing has needed summarising yet.'}</div>
+        ${sn.summary ? `<div class="mem-card"><div class="mem-content">${esc(sn.summary)}</div></div>` : ''}`;
+    } catch (e) { /* the long-term list below still renders */ }
+  }
+  try {
+    const r = await api(`/api/memory?domain=${encodeURIComponent(currentDomain)}&agent=${encodeURIComponent(teamState.slug)}`);
+    const j = await r.json();
+    const longTerm = j.memories.map(m => `<div class="mem-card" style="display:flex;gap:10px;">
+        <div style="flex:1;min-width:0;"><div class="mem-subject"><span class="kind-chip ${esc(m.kind)}">${esc(m.kind)}</span> ${esc(m.subject)}</div>
+        <div class="mem-content">${esc(m.content)}</div>
+        <div class="mem-meta">M${m.memory_id} · ${m.agent === 'team' ? 'shared with the whole team' : 'this agent only'} · from ${esc(m.source)} · ${timeAgo(m.created_at)}</div></div>
+        <button class="mem-del" title="Forget this" aria-label="Forget memory ${m.memory_id}" onclick="forgetTeamMemory(${m.memory_id})">✕</button>
+      </div>`).join('') || `<div class="rv-note">Nothing yet. Tell this agent a fact, a decision, a preference or a correction and it will keep it for next time.</div>`;
+    host.innerHTML = `<div class="rv-sec"><h4>Short-term · this conversation</h4>${shortTerm}</div>
+      <div class="rv-sec"><h4>Long-term · about ${esc(currentDomain)}, across conversations</h4>${longTerm}</div>`;
+  } catch (e) {
+    host.innerHTML = `<div class="rv-note">Could not load memory: ${esc(e.message)}</div>`;
+  }
+}
+
+async function forgetTeamMemory(id){
+  try {
+    await api(`/api/memory/${encodeURIComponent(currentDomain)}/${id}`, {method: 'DELETE'});
+  } finally {
+    loadTeamRemembers();
+  }
+}
+window.forgetTeamMemory = forgetTeamMemory;
 
 /* ============================== catalogue chat (step 02, agents 2 & 3) ============================== */
 const chatState = {

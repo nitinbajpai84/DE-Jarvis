@@ -446,6 +446,76 @@ def api_catalogue_chat(request: Request, body: CatalogueChatRequest):
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+class AgentChatRequest(BaseModel):
+    domain: str
+    message: str
+    session_id: str | None = None
+    target: str = "duckdb"
+
+
+def _agent_or_404(slug: str) -> None:
+    from emitters.agent_brain import AGENT_SLUGS
+    if slug not in AGENT_SLUGS:
+        raise HTTPException(status_code=404, detail=f"no agent {slug!r}")
+
+
+@app.get("/api/agents")
+def api_agents():
+    """The team: each agent's persona, what it's for, the model it thinks with, what it reads and
+    which tools it may call."""
+    from emitters.agent_brain import agents
+    return {"agents": agents()}
+
+
+@app.get("/api/agents/{slug}/context")
+def api_agent_context(request: Request, slug: str, domain: str = pipeline.DEFAULT_DOMAIN, target: str = "duckdb"):
+    """Exactly the context pack this agent would be given for this company right now."""
+    _agent_or_404(slug)
+    _check_domain(request, domain)
+    from emitters.agent_context import build_context
+    return {"domain": domain, "agent": slug, "items": build_context(domain, slug, target, _sees_unclassified(request))}
+
+
+@app.get("/api/agents/{slug}/sessions")
+def api_agent_sessions(request: Request, slug: str, domain: str = pipeline.DEFAULT_DOMAIN):
+    _agent_or_404(slug)
+    _check_domain(request, domain)
+    from emitters.agent_sessions import list_sessions
+    return {"sessions": list_sessions(domain, slug, _username(request))}
+
+
+@app.get("/api/agents/{slug}/sessions/{session_id}")
+def api_agent_session(request: Request, slug: str, session_id: str, domain: str = pipeline.DEFAULT_DOMAIN):
+    _agent_or_404(slug)
+    _check_domain(request, domain)
+    from emitters.agent_sessions import get_session, messages
+    try:
+        session = get_session(session_id, domain, _username(request))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if session["agent"] != slug:
+        raise HTTPException(status_code=404, detail="that conversation belongs to a different agent")
+    return {"session": session, "messages": messages(session_id, domain)}
+
+
+@app.post("/api/agents/{slug}/chat")
+def api_agent_chat(request: Request, slug: str, body: AgentChatRequest):
+    """One turn with an agent: Gemini reasoning over this conversation, what it remembers about
+    the company, and the platform's records -- with the trace of how it answered."""
+    _agent_or_404(slug)
+    _check_domain(request, body.domain)
+    from emitters.agent_brain import ask
+    try:
+        return ask(body.domain, slug, body.message, _username(request), body.session_id, body.target,
+                   include_unclassified=_sees_unclassified(request))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 -- a model or key failure is shown to the person, not hidden
+        raise HTTPException(status_code=502, detail=f"The agent couldn't answer: {type(exc).__name__}: {str(exc)[:300]}") from exc
+
+
 @app.get("/api/memory")
 def api_memory_list(request: Request, domain: str = pipeline.DEFAULT_DOMAIN, agent: str | None = None,
                     target: str = "duckdb"):
