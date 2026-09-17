@@ -54,8 +54,8 @@ AGENT_SLUGS = {
     "detective": (1, "Finds and explains what is in the company's data: sources, the landing zone, "
                      "the estate scan, and which required data points exist where."),
     "architect": (2, "Advises on target architecture: layering, recovery objectives, history strategy, "
-                     "conflicting copies and how personal data is controlled -- grounded in published reference "
-                     "architectures (search_reference_architectures), quoting the passages it relies on."),
+                     "conflicting copies and how personal data is controlled, quoting the published reference "
+                     "architectures it relies on."),
     "delivery": (3, "Keeps the intents, gaps and sign-offs moving: what is blocked, what needs a decision, "
                     "and who owns the next step."),
     "engineer": (4, "Explains ingestion and pipelines: what landed, what loaded, what was quarantined and why, "

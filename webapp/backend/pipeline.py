@@ -65,21 +65,28 @@ _LINEAGE_COLUMNS = {"data_catalogue_id", "source_record_id", "_run_id", "_source
 
 def _live_table_stats(con, schema: str) -> dict[str, dict[str, int]]:
     """Ground truth for "what's actually in this layer right now": the live tables themselves,
-    not a reconstruction from run history. One count(*) and one column-count per table -- cheap
-    on local duckdb, a real network round trip each on Databricks, which is why the frontend
-    polls this endpoint on a slower cadence than the alerts/status ones. Column counts exclude
-    bronze_loader.py's 6 lineage columns, matching the "business columns only" convention
-    columns_processed already uses everywhere else (see silver_transform.py's _bronze_columns)."""
-    tables = [r[0] for r in con.execute(
-        "select table_name from information_schema.tables where table_schema = ? order by table_name",
-        [schema],
-    ).fetchall()]
-    stats = {}
-    for t in tables:
-        rows = con.execute(f"select count(*) from {schema}.{t}").fetchone()[0]
-        col_names = {d[0] for d in con.execute(f"select * from {schema}.{t} limit 0").description}
-        stats[t] = {"rows": rows, "columns": len(col_names - _LINEAGE_COLUMNS)}
-    return stats
+    not a reconstruction from run history. Column counts exclude bronze_loader.py's 6 lineage
+    columns, matching the "business columns only" convention columns_processed already uses
+    everywhere else (see silver_transform.py's _bronze_columns).
+
+    Two round trips per schema, not two per table: columns from information_schema in one
+    query, row counts as one UNION ALL. The per-table version cost a count(*) and a
+    `select * limit 0` for every table -- a network round trip each on Databricks, which made
+    the insurance medallion flow take 23 s and every journey load on Databricks close to a
+    minute (measured in the 2026-09-17 live smoke test)."""
+    rows = con.execute(
+        "select table_name, column_name from information_schema.columns where table_schema = ? "
+        "order by table_name", [schema]).fetchall()
+    columns: dict[str, set[str]] = {}
+    for table, column in rows:
+        columns.setdefault(table, set()).add(column)
+    tables = sorted(columns)
+    counts: dict[str, int] = {}
+    for i in range(0, len(tables), 40):
+        chunk = tables[i:i + 40]
+        union = " union all ".join(f"select '{t}' as t, count(*) as n from {schema}.{t}" for t in chunk)
+        counts.update({t: n for t, n in con.execute(union).fetchall()})
+    return {t: {"rows": counts.get(t, 0), "columns": len(columns[t] - _LINEAGE_COLUMNS)} for t in tables}
 
 
 def pipeline_flow(target: str, domain: str = DEFAULT_DOMAIN) -> dict[str, Any]:

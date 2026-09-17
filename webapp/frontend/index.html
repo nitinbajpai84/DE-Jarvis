@@ -2913,7 +2913,7 @@ async function selectTeamAgent(slug){
       role="tab" aria-selected="${x.slug === slug}" onclick="selectTeamAgent('${x.slug}')"><i style="background:${esc(x.colour)}">${esc(initials(x.persona))}</i>${esc(x.persona.replace(/^The /, ''))}</button>`).join('');
   document.getElementById('teamCard').innerHTML = `<b>${esc(a.persona)}</b> <span class="rv-ver">${esc(a.role)}</span>
     <div class="purpose">${esc(a.purpose)}</div>
-    <div class="brain">brain ${esc(a.model)} · reads ${a.context_sections.map(esc).join(', ')} · ${a.tools.length} read-only tools</div>`;
+    <div class="brain">brain ${esc(a.model)} · reads ${a.context_sections.map(esc).join(', ')} · ${a.tools.filter(t => t !== 'propose_change').length} lookups · proposes changes for your approval</div>`;
   document.getElementById('teamLog').innerHTML = '';
   await loadTeamSessions();
   switchTeamTab(teamState.tab);

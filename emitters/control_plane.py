@@ -191,6 +191,9 @@ _MIGRATIONS: list[tuple[str, str, str, str | None]] = [
 ]
 
 
+_SCHEMA_ENSURED: set[tuple[str, str, str]] = set()
+
+
 def ensure_control_schema(con: SqlConnection, control_schema: str) -> None:
     # Called at the top of nearly every control-plane read/write, so on a page load that fires
     # a dozen API calls in parallel (the Control Room does exactly this), several land here at
@@ -201,9 +204,22 @@ def ensure_control_schema(con: SqlConnection, control_schema: str) -> None:
     # the DDL is idempotent, so re-running it after another connection's commit is always safe.
     import random
     import time
+    # On a remote warehouse the setup below is ~20 round trips (11 CREATEs, 9 column checks):
+    # measured at 10 s per call on Databricks, and a Databricks journey opened enough connections
+    # to spend 90 s of a page load re-creating tables that already existed. It runs once per
+    # process per warehouse+schema there. DuckDB keeps running it every time: it's local and
+    # cheap, and tests point fresh database files at the same schema name.
+    key = None
+    if con.dialect != "duckdb":
+        import os
+        key = (con.dialect, os.environ.get("DATABRICKS_HOST", ""), control_schema)
+        if key in _SCHEMA_ENSURED:
+            return
     for attempt in range(5):
         try:
             _ensure_control_schema_once(con, control_schema)
+            if key:
+                _SCHEMA_ENSURED.add(key)
             return
         except Exception:  # noqa: BLE001 -- retry on a concurrent-DDL conflict; re-raise otherwise
             if attempt == 4:
