@@ -148,6 +148,18 @@ def test_scan_writes_are_batched(synthetic_estate):
     assert wide == narrow
 
 
+def test_empty_estate_claims_no_tiers_it_did_not_run(tmp_path, monkeypatch):
+    db = tmp_path / "empty.duckdb"
+    monkeypatch.setattr(estate, "sql_connect",
+                        lambda target, platform: SqlConnection(duckdb.connect(str(db)), "duckdb"))
+    monkeypatch.setattr(estate, "_known_domains", lambda: ["insurance"])
+    estate._SCHEMA_READY.clear()
+    summary = estate.run_scan("insurance", "duckdb", tiers=4)
+    assert summary["tier_reached"] == 1
+    scan = estate.list_scans("insurance", "duckdb")[0]
+    assert scan["tier_reached"] == 1 and "no tables found" in scan["note"]
+
+
 def test_abandoned_running_scan_is_closed(synthetic_estate):
     summary, _ = synthetic_estate()
     con, control = estate._con("duckdb", "insurance")

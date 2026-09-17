@@ -605,6 +605,20 @@ def run_scan(domain: str, target: str = "duckdb", tiers: int = 4,
         inventory = _tier1_inventory(con, control, scan_id, domain)
         schemas = len({i["schema"] for i in inventory})
         reached = 1
+        if not inventory:
+            # The census ran and found nothing; the later tiers have nothing to act on, so they
+            # are not claimed. Seen live: the Railway DuckDB holds no loaded tables, and the scan
+            # reported "tier 3, 0 tables" with no note -- which reads as "your estate is clean".
+            con.execute(
+                f"update {control}.estate_scan set status = ?, tier_reached = ?, ended_at = ?, "
+                f"note = ? where scan_id = ?",
+                ["completed", 1, _dt.datetime.now(_dt.timezone.utc),
+                 f"no tables found on {target} in {domain}'s schemas or in any unclassified schema "
+                 f"-- nothing has been loaded here yet", scan_id])
+            return {"scan_id": scan_id, "domain": domain, "target": target, "status": "completed",
+                    "tier_reached": 1, "schemas_scanned": 0, "tables_scanned": 0, "shortlisted": 0,
+                    "enriched": 0, "note": "no tables found",
+                    "seconds": round((_dt.datetime.now(_dt.timezone.utc) - started).total_seconds(), 1)}
 
         shortlist: list[dict[str, Any]] = []
         if tiers >= 2:
