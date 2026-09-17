@@ -476,6 +476,12 @@
   .chat-mic{flex:none;width:38px;height:38px;border-radius:8px;border:1px solid var(--border);background:var(--bg-panel-2);
            color:var(--text-secondary);cursor:pointer;font-size:15px;}
   .chat-mic.recording{background:var(--critical-soft);border-color:var(--critical);color:var(--critical);animation:blink 1.2s infinite;}
+  .mic-status{font-size:12px;color:var(--text-secondary);min-height:0;margin-top:2px;line-height:1.45;}
+  .mic-status:empty{display:none;}
+  .mic-status.listening{color:var(--accent-ink);}
+  .mic-status.bad{color:var(--critical);}
+  .mic-status .heard{color:var(--text-primary);font-style:italic;}
+  @media (prefers-reduced-motion: reduce){.chat-mic.recording{animation:none;}}
   /* the team drawer: agents with a brain, context and memory */
   .team-drawer{position:fixed;top:0;right:0;bottom:0;width:min(520px,100vw);z-index:60;background:var(--bg-panel);
     border-left:1px solid var(--border);box-shadow:-12px 0 40px rgba(13,27,42,.12);display:flex;flex-direction:column;
@@ -794,6 +800,7 @@
         <button class="chat-mic" id="chatMic-team" type="button" onclick="toggleChatMic('team')" title="Speak instead of typing">🎤</button>
         <button class="btn primary" id="teamSend" onclick="sendTeamMessage()">Send</button>
       </div>
+      <div class="mic-status" id="micStatus-team" role="status" aria-live="polite"></div>
     </section>
     <section data-tp="sees" hidden><div id="teamSees" class="team-sees"></div></section>
     <section data-tp="remembers" hidden><div id="teamRemembers"></div></section>
@@ -3218,6 +3225,7 @@ function chatWidgetHtml(kind){
       ${micButton}
       <button class="btn primary" onclick="sendChatMessage('${kind}')">Send</button>
     </div>
+    <div class="mic-status" id="micStatus-${kind}" role="status" aria-live="polite"></div>
     ${SPEECH_RECOGNITION ? '' : '<div class="intent-help">Voice input needs a browser with Web Speech API support (e.g. Chrome) — typing still works everywhere.</div>'}
   </div>`;
 }
@@ -3293,27 +3301,89 @@ function applyChatSuggestion(kind, jsonStr){
 window.applyChatSuggestion = applyChatSuggestion;
 
 let activeMicRecognition = null;
+
+/* Voice input: the browser's own speech recognition (Chrome and Edge send the audio to their
+   speech service and hand back text). Looked up when the mic is clicked rather than once at
+   load, so a page opened before permission changes -- or a test double -- is picked up.
+   Every outcome is said out loud in the status line under the input. The first version
+   swallowed every error, so a blocked microphone or "heard nothing" looked like a dead button. */
+function speechApi(){ return window.SpeechRecognition || window.webkitSpeechRecognition; }
+
+const MIC_ERRORS = {
+  'not-allowed': 'Microphone access is blocked. Click the mic/lock icon in the address bar, allow the microphone for this site, then try again.',
+  'service-not-allowed': 'This browser won’t allow speech recognition here. Allow the microphone for this site, or use Chrome or Edge.',
+  'no-speech': 'Didn’t hear anything. Click the mic and start speaking straight away.',
+  'audio-capture': 'No microphone was found. Plug one in or check your sound settings, then try again.',
+  'network': 'Speech recognition couldn’t reach its service. Check your internet connection and try again.',
+  'language-not-supported': 'English (US) speech recognition isn’t available in this browser.',
+};
+
+function micStatus(kind, html, cls){
+  const el = document.getElementById(`micStatus-${kind}`);
+  if (!el) return;
+  el.className = 'mic-status' + (cls ? ' ' + cls : '');
+  el.innerHTML = html;
+}
+
 function toggleChatMic(kind){
-  if (!SPEECH_RECOGNITION) return;
+  const Api = speechApi();
   const btn = document.getElementById(`chatMic-${kind}`);
+  if (!Api) {
+    micStatus(kind, 'Voice input needs Chrome or Edge. Typing works everywhere.', 'bad');
+    return;
+  }
   if (activeMicRecognition) {
     activeMicRecognition.stop();
     return;
   }
-  const rec = new SPEECH_RECOGNITION();
+  const input = document.getElementById(`chatInput-${kind}`);
+  const before = input.value ? input.value + ' ' : '';
+  const rec = new Api();
   rec.lang = 'en-US';
-  rec.interimResults = false;
+  rec.interimResults = true;
+  rec.continuous = false;
   rec.maxAlternatives = 1;
+  let finalText = '', failed = false;
   activeMicRecognition = rec;
   btn.classList.add('recording');
+  btn.setAttribute('aria-pressed', 'true');
+  micStatus(kind, 'Starting the microphone…', 'listening');
+  rec.onstart = () => micStatus(kind, 'Listening — speak now. Click the mic again to stop.', 'listening');
   rec.onresult = (e) => {
-    const transcript = Array.from(e.results).map(r => r[0].transcript).join(' ');
-    const input = document.getElementById(`chatInput-${kind}`);
-    input.value = (input.value ? input.value + ' ' : '') + transcript;
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const text = e.results[i][0].transcript;
+      if (e.results[i].isFinal) finalText += (finalText ? ' ' : '') + text.trim();
+      else interim += text;
+    }
+    input.value = before + (finalText + (interim ? ' ' + interim : '')).trim();
+    micStatus(kind, `Listening — <span class="heard">${esc(interim || finalText)}</span>`, 'listening');
   };
-  rec.onerror = () => {};
-  rec.onend = () => { btn.classList.remove('recording'); activeMicRecognition = null; };
-  rec.start();
+  rec.onerror = (e) => {
+    failed = true;
+    if (e.error === 'aborted') { micStatus(kind, ''); return; }
+    micStatus(kind, esc(MIC_ERRORS[e.error] || `Voice input stopped: ${e.error || 'unknown error'}.`), 'bad');
+  };
+  rec.onend = () => {
+    btn.classList.remove('recording');
+    btn.setAttribute('aria-pressed', 'false');
+    activeMicRecognition = null;
+    if (failed) return;
+    if (finalText) {
+      input.value = before + finalText;
+      micStatus(kind, `Heard: <span class="heard">${esc(finalText)}</span> — edit it if needed, then Send.`);
+      input.focus();
+    } else {
+      micStatus(kind, esc(MIC_ERRORS['no-speech']), 'bad');
+    }
+  };
+  try {
+    rec.start();
+  } catch (err) {
+    btn.classList.remove('recording');
+    activeMicRecognition = null;
+    micStatus(kind, `Couldn’t start the microphone: ${esc(err.message)}`, 'bad');
+  }
 }
 window.toggleChatMic = toggleChatMic;
 
