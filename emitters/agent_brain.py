@@ -54,7 +54,8 @@ AGENT_SLUGS = {
     "detective": (1, "Finds and explains what is in the company's data: sources, the landing zone, "
                      "the estate scan, and which required data points exist where."),
     "architect": (2, "Advises on target architecture: layering, recovery objectives, history strategy, "
-                     "conflicting copies and how personal data is controlled."),
+                     "conflicting copies and how personal data is controlled -- grounded in published reference "
+                     "architectures (search_reference_architectures), quoting the passages it relies on."),
     "delivery": (3, "Keeps the intents, gaps and sign-offs moving: what is blocked, what needs a decision, "
                     "and who owns the next step."),
     "engineer": (4, "Explains ingestion and pipelines: what landed, what loaded, what was quarantined and why, "
@@ -133,6 +134,7 @@ TOOL_DOCS = [
     ("search_estate_columns", "Find columns in the latest estate scan whose name contains some text."),
     ("get_source_profile", "The live discovery profile of one source: columns, types, empty values, keys, review state."),
     ("recall_memories", "Search this agent's long-term memory about the company for something specific."),
+    ("search_reference_architectures", "Search published reference architectures (Microsoft Learn, Databricks, AWS, Google Cloud) for passages to cite."),
     ("propose_change", "File a change for a person to approve: add data points to an intent, update the architecture, run a scan, accept or reject a source version, assign a ticket, or a recommendation."),
 ]
 
@@ -236,8 +238,35 @@ def _tools(domain: str, agent: str, target: str, wide: bool, trace: dict[str, An
         return json.dumps({"filed": True, "proposal_id": p["proposal_id"], "will_do": p["preview"],
                            "status": "waiting for a person to approve"})
 
+    @tool
+    def search_reference_architectures(query: str, cloud: str = "") -> str:
+        """Passages from published reference architectures -- Microsoft Learn (Azure Databricks),
+        Databricks documentation, AWS Well-Architected, Google Cloud Architecture Center -- most
+        relevant to the query. cloud: azure, aws or gcp (empty searches all). Each passage has a
+        ref (R1, R2...) to cite, with its page title, section and URL. Quote passages exactly and
+        name the page when you rely on them; say plainly if nothing relevant comes back."""
+        from emitters import reference_arch
+        clouds = [cloud] if cloud in reference_arch.CLOUDS else list(reference_arch.CLOUDS)
+        seen, pool = set(), []
+        for c in clouds:
+            for p in reference_arch._passages(c):
+                if (p["source_id"], p["chunk_no"]) not in seen:
+                    seen.add((p["source_id"], p["chunk_no"]))
+                    pool.append(p)
+        if not pool:
+            return "No reference passages are available yet -- an admin needs to refresh the reference sources."
+        hits = reference_arch.search(query, "", k=4, pool=pool, query_vec=_embed(query))
+        refs = trace.setdefault("reference_passages", [])
+        out = []
+        for h in hits:
+            rid = f"R{len(refs) + 1}"
+            refs.append({"ref": rid, "title": h["title"], "heading": h["heading"], "url": h["url"], "publisher": h["publisher"]})
+            out.append({"ref": rid, "title": h["title"], "section": h["heading"], "publisher": h["publisher"],
+                        "url": h["url"], "text": h["text"]})
+        return json.dumps(out)
+
     return [get_gap_report, get_estate_findings, search_estate_columns, get_source_profile, recall_memories,
-            propose_change]
+            search_reference_architectures, propose_change]
 
 
 # --------------------------------------------------------------------------- prompts
@@ -437,7 +466,8 @@ def ask(domain: str, agent: str, message: str, username: str, session_id: str | 
     # none of them are shown to the person as unverified rather than trusted.
     known = {i["id"] for i in items} | {f"M{m['memory_id']}" for m in memories}
     joined = "\n".join(tool_text)
-    trace["cited"] = [c for c in cited if c in known or re.search(rf'"memory_id": {c[1:]}\b', joined)]
+    trace["cited"] = [c for c in cited if c in known or re.search(rf'"memory_id": {c[1:]}\b', joined)
+                      or f'"ref": "{c}"' in joined]
     trace["citations_unverified"] = [c for c in cited if c not in trace["cited"]]
     lap("reasoning", s)
 

@@ -516,6 +516,64 @@ def api_agent_chat(request: Request, slug: str, body: AgentChatRequest):
         raise HTTPException(status_code=502, detail=f"The agent couldn't answer: {type(exc).__name__}: {str(exc)[:300]}") from exc
 
 
+class AdviceRequest(BaseModel):
+    domain: str
+    target: str = "duckdb"
+    cloud: str = "azure"
+    question: str = ""
+
+
+@app.get("/api/reference/sources")
+def api_reference_sources():
+    """The published reference architectures advice is grounded in: page, publisher, clouds,
+    when it was fetched, how many passages it holds, and any fetch error."""
+    from emitters.reference_arch import CLOUDS, list_sources
+    return {"clouds": CLOUDS, "sources": list_sources()}
+
+
+@app.post("/api/reference/refresh")
+def api_reference_refresh(request: Request, force: bool = Form(False)):
+    """Re-fetch the reference pages. The corpus is shared by every company, so admin only."""
+    _require_admin(request)
+    from emitters.reference_arch import refresh_corpus
+    return refresh_corpus(force=force)
+
+
+@app.post("/api/architecture/advice")
+def api_architecture_advice(request: Request, body: AdviceRequest):
+    """Reference-architecture advice for this company: recommendations each grounded in a quoted,
+    verified passage of published guidance and in the company's own records."""
+    _check_domain(request, body.domain)
+    from emitters.reference_arch import advise
+    try:
+        return advise(body.domain, body.target, body.cloud, body.question, _username(request),
+                      include_unclassified=_sees_unclassified(request))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Advice failed: {type(exc).__name__}: {str(exc)[:300]}") from exc
+
+
+@app.get("/api/architecture/advice")
+def api_architecture_advice_list(request: Request, domain: str = pipeline.DEFAULT_DOMAIN):
+    _check_domain(request, domain)
+    from emitters.reference_arch import list_advice
+    return {"domain": domain, "advice": list_advice(domain)}
+
+
+@app.post("/api/architecture/advice/{advice_id}/propose")
+def api_architecture_advice_propose(request: Request, advice_id: str, domain: str = Form(...), index: int = Form(...)):
+    """Send one recommendation to the team as a proposal, with its citations as evidence."""
+    _check_domain(request, domain)
+    from emitters.reference_arch import propose_recommendation
+    try:
+        return propose_recommendation(domain, advice_id, index, _username(request))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/api/proposals")
 def api_proposals(request: Request, domain: str = pipeline.DEFAULT_DOMAIN, status: str | None = None):
     """Changes the agents have proposed for this company, newest first."""

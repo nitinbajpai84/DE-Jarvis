@@ -553,6 +553,28 @@
   .prop-status.approved{background:var(--good-soft);color:var(--good);}
   .prop-status.declined{background:var(--bg-raised);color:var(--text-secondary);}
   .prop-status.failed{background:var(--critical-soft);color:var(--critical);}
+  .adv-meta{font-size:11.5px;color:var(--text-muted);margin:14px 0 8px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+  .adv-card{border:1px solid var(--border-soft);border-radius:12px;padding:13px 15px;margin-bottom:10px;background:var(--bg-panel);}
+  .adv-top{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;}
+  .adv-top b{font-size:14px;color:var(--text-primary);}
+  .adv-topic{font-family:'IBM Plex Mono';font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;padding:2px 7px;border-radius:20px;
+    background:var(--bg-raised);color:var(--text-secondary);}
+  .adv-conf{font-family:'IBM Plex Mono';font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:20px;}
+  .adv-conf.high{background:var(--good-soft);color:var(--good);}
+  .adv-conf.medium{background:var(--warning-soft);color:var(--warning);}
+  .adv-conf.low{background:var(--critical-soft);color:var(--critical);}
+  .adv-rec{font-size:13px;line-height:1.55;color:var(--text-primary);margin:0 0 6px;}
+  .adv-why{font-size:12.5px;line-height:1.5;color:var(--text-secondary);margin:0 0 8px;}
+  .adv-why b{color:var(--text-primary);}
+  .adv-quote{border-left:3px solid var(--accent-line);background:var(--bg-panel-2);border-radius:0 8px 8px 0;padding:8px 11px;margin:6px 0;}
+  .adv-quote q{display:block;font-size:12.5px;line-height:1.5;color:var(--text-primary);quotes:"\201C" "\201D";}
+  .adv-quote .src{font-size:11px;color:var(--text-muted);margin-top:4px;}
+  .adv-quote .src a{color:var(--accent-ink);}
+  .adv-warn{font-size:11.5px;color:var(--critical);margin:6px 0;}
+  .adv-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;}
+  .adv-src-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:6px 0;border-top:1px solid var(--border-soft);font-size:12px;}
+  .adv-src-row a{color:var(--text-primary);}
+  .adv-src-row .m{font-size:10.5px;color:var(--text-muted);}
   .diagram-tabs{display:flex;gap:8px;}
   .diagram-tabs .btn.active{background:var(--accent-soft);border-color:var(--accent);color:var(--text-primary);}
   .diagram-svg-wrap{overflow-x:auto;background:var(--bg-panel-2);border:1px solid var(--border-soft);border-radius:10px;padding:14px;}
@@ -1249,6 +1271,20 @@ dim_awm_portfolio | scd1"></textarea></label>
       <div id="archIssues" style="margin-top:11px;"></div>
     </div>
     <div class="panel">
+      <div class="panel-head"><h3>Reference architecture advice</h3>
+        <span class="note">The Chief Architect reads published guidance for your cloud and quotes it — every quote is checked word for word against the source page</span></div>
+      <div class="conn-form">
+        <label>Cloud<select id="adviceCloud"><option value="azure">Microsoft Azure</option><option value="aws">Amazon Web Services</option><option value="gcp">Google Cloud</option></select></label>
+        <label style="grid-column:span 2;">A specific question (optional)<input id="adviceQuestion" placeholder="e.g. how should we meet a 1 hour RPO for claims data?"></label>
+      </div>
+      <div class="conn-actions">
+        <button class="btn primary" id="adviceBtn" onclick="requestAdvice()">Get advice</button>
+        <button class="btn ghost" onclick="toggleAdviceSources()">Sources</button>
+      </div>
+      <div id="adviceSources" hidden></div>
+      <div id="adviceHost"><div class="empty-note">Loading…</div></div>
+    </div>
+    <div class="panel">
       <div class="panel-head"><h3>Architecture diagrams</h3>
         <span class="note">Auto-generated from ${esc(currentDomain)}'s own real contracts — never hand-drawn, always accurate</span></div>
       <div class="diagram-tabs">
@@ -1355,7 +1391,7 @@ dim_awm_portfolio | scd1"></textarea></label>
 
   if (s.id === 'catalogue') {
     wireDropzone(); loadUploads();
-    loadIntentForm(); loadArchitectureForm(); loadDiagram(); loadMemoryUI();
+    loadIntentForm(); loadArchitectureForm(); loadDiagram(); loadMemoryUI(); loadAdvice();
     if (o.intent_captured) runGapAnalysisUI(); else loadGapReport();
   }
   if (s.id === 'build') { refreshFlow(); loadAgentRuns(); }
@@ -2462,6 +2498,136 @@ async function runGapAnalysisUI(){
 }
 window.runGapAnalysisUI = runGapAnalysisUI;
 
+/* ============================== reference architecture advice (step 02) ============================== */
+let adviceData = null;
+const ADVICE_CLOUD = {azure: 'Microsoft Azure', aws: 'Amazon Web Services', gcp: 'Google Cloud'};
+
+function adviceHtml(a){
+  const recs = a.recommendations.map((r, i) => {
+    const quotes = r.citations.map(c => {
+      const src = a.sources[c.ref] || {};
+      return `<div class="adv-quote"><q>${esc(c.quote)}</q>
+        <div class="src"><a href="${esc(src.url)}" target="_blank" rel="noopener">${esc(src.title || src.url)}</a>${src.heading ? ' · ' + esc(src.heading) : ''} · ${esc(src.publisher || '')} · fetched ${timeAgo(src.fetched_at)}</div></div>`;
+    }).join('');
+    const facts = r.facts.length ? ` <span class="rv-ver">from ${r.facts.map(esc).join(', ')}</span>` : '';
+    let action = '';
+    if (r.proposal && r.proposal.invalid) {
+      action = `<span class="rv-note">Suggested change not offered: ${esc(r.proposal.invalid)}.</span>
+        <button class="btn ghost sm" onclick="proposeAdvice('${esc(a.advice_id)}', ${i})">Send as a recommendation</button>`;
+    } else {
+      const what = r.proposal && r.proposal.kind === 'update_architecture' ? 'Propose updating the architecture record' : 'Send to the team as a recommendation';
+      action = `<button class="btn ghost sm" onclick="proposeAdvice('${esc(a.advice_id)}', ${i})">${what}</button>`;
+    }
+    return `<div class="adv-card">
+      <div class="adv-top"><span class="adv-topic">${esc(r.topic)}</span><b>${esc(r.title)}</b><span class="adv-conf ${esc(r.confidence)}">${esc(r.confidence)} confidence</span></div>
+      <p class="adv-rec">${esc(r.recommendation)}</p>
+      ${r.why_here ? `<p class="adv-why"><b>Why for ${esc(a.domain)}:</b> ${agentTextHtml(r.why_here).replace(/^<p>|<\/p>$/g, '')}${facts}</p>` : ''}
+      ${quotes}
+      ${(r.unsupported_terms || []).length ? `<div class="adv-warn">Not found in the quoted sources or your records: ${r.unsupported_terms.map(t => `<code>${esc(t)}</code>`).join(', ')} — check these before acting.</div>` : ''}
+      <div class="adv-actions">${action}<span class="rv-note" id="advRes-${esc(a.advice_id)}-${i}"></span></div>
+    </div>`;
+  }).join('') || `<div class="empty-note">No recommendation survived checking — try a narrower question.</div>`;
+  const st = a.stats || {};
+  const dropped = (a.rejected || []).length;
+  return `<div class="adv-meta">
+      <span>${esc(ADVICE_CLOUD[a.cloud] || a.cloud)} · ${timeAgo(a.created_at)} by ${esc(a.created_by)} · ${esc(a.model)}</span>
+      <span>${st.citations_verified || 0} of ${st.citations_checked || 0} quotes verified against the source pages</span>
+      ${dropped ? `<span>${dropped} draft${dropped === 1 ? '' : 's'} dropped: ${a.rejected.map(x => esc(x.reason)).filter((v, i, arr) => arr.indexOf(v) === i).join('; ')}</span>` : ''}
+    </div>
+    ${a.question ? `<p class="rv-note" style="margin:0 0 8px;">Asked: “${esc(a.question)}”</p>` : ''}
+    ${recs}`;
+}
+
+async function loadAdvice(){
+  const host = document.getElementById('adviceHost');
+  if (!host) return;
+  try {
+    const r = await api(`/api/architecture/advice?domain=${encodeURIComponent(currentDomain)}`);
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    adviceData = j.advice[0] || null;
+    host.innerHTML = adviceData ? adviceHtml(adviceData)
+      : `<div class="empty-note">No advice yet for ${esc(currentDomain)}. Pick your cloud and ask — it takes about 20 seconds.</div>`;
+    if (adviceData) document.getElementById('adviceCloud').value = adviceData.cloud;
+  } catch (e) {
+    host.innerHTML = `<div class="empty-note">Could not load advice: ${esc(e.message)}</div>`;
+  }
+}
+
+async function requestAdvice(){
+  const host = document.getElementById('adviceHost');
+  const btn = document.getElementById('adviceBtn');
+  btn.disabled = true; btn.textContent = 'Reading the guidance…';
+  host.innerHTML = `<div class="empty-note">The Chief Architect is reading published reference architectures against ${esc(currentDomain)}'s records, then checking every quote…</div>`;
+  try {
+    const r = await api('/api/architecture/advice', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({domain: currentDomain, target: currentTarget, cloud: document.getElementById('adviceCloud').value,
+                            question: document.getElementById('adviceQuestion').value})});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    adviceData = j;
+    host.innerHTML = adviceHtml(j);
+  } catch (e) {
+    host.innerHTML = `<div class="conn-result bad">✕ ${esc(e.message)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Get advice';
+  }
+}
+window.requestAdvice = requestAdvice;
+
+async function proposeAdvice(adviceId, index){
+  const out = document.getElementById(`advRes-${adviceId}-${index}`);
+  const fd = new FormData();
+  fd.append('domain', currentDomain); fd.append('index', index);
+  try {
+    const r = await api(`/api/architecture/advice/${encodeURIComponent(adviceId)}/propose`, {method: 'POST', body: fd});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    out.innerHTML = `✓ Proposed — <a href="#" onclick="openApprovals();return false;">waiting in Approvals</a>`;
+    loadProposals();
+  } catch (e) {
+    out.textContent = '✕ ' + e.message;
+  }
+}
+window.proposeAdvice = proposeAdvice;
+
+async function toggleAdviceSources(){
+  const host = document.getElementById('adviceSources');
+  host.hidden = !host.hidden;
+  if (host.hidden) return;
+  host.innerHTML = `<div class="rv-note">Loading…</div>`;
+  try {
+    const r = await api('/api/reference/sources');
+    const j = await r.json();
+    const cloud = document.getElementById('adviceCloud').value;
+    const rows = j.sources.filter(x => x.clouds.includes(cloud)).map(x => `<div class="adv-src-row">
+        <span><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title || x.url)}</a><div class="m">${esc(x.publisher)}${x.error ? ' · last fetch failed: ' + esc(x.error) : ''}</div></span>
+        <span class="m">${x.status === 'ok' ? `${fmtNum(x.passages)} passages · fetched ${timeAgo(x.fetched_at)}` : esc(x.status)}</span>
+      </div>`).join('');
+    host.innerHTML = `<div class="rv-sec" style="margin-top:12px;"><h4>Published guidance used for ${esc(ADVICE_CLOUD[cloud])}</h4>${rows}
+      ${currentUserDomains === '*' ? `<div class="conn-actions"><button class="btn ghost sm" onclick="refreshReferenceSources()">Re-fetch sources</button><span class="rv-note" id="refRefresh"></span></div>` : ''}</div>`;
+  } catch (e) {
+    host.innerHTML = `<div class="rv-note">Could not load sources: ${esc(e.message)}</div>`;
+  }
+}
+window.toggleAdviceSources = toggleAdviceSources;
+
+async function refreshReferenceSources(){
+  const out = document.getElementById('refRefresh');
+  out.textContent = 'Fetching… this takes a minute or two';
+  const fd = new FormData(); fd.append('force', 'true');
+  try {
+    const r = await api('/api/reference/refresh', {method: 'POST', body: fd});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    out.textContent = `✓ ${j.fetched.length} updated, ${j.unchanged.length} unchanged, ${j.failed.length} failed`;
+    const host = document.getElementById('adviceSources'); host.hidden = true; toggleAdviceSources();
+  } catch (e) {
+    out.textContent = '✕ ' + e.message;
+  }
+}
+window.refreshReferenceSources = refreshReferenceSources;
+
 /* ============================== architecture (step 02) ============================== */
 async function loadArchitectureForm(){
   try {
@@ -2934,6 +3100,7 @@ function traceHtml(t){
     <dt>Tools</dt><dd>${tools}</dd>
     <dt>Recalled</dt><dd>${recalled}</dd>
     <dt>Remembered</dt><dd>${saved}</dd>
+    ${(t.reference_passages || []).length ? `<dt>Sources</dt><dd>${t.reference_passages.map(r => `<code class="${cited.has(r.ref) ? 'cited' : ''}">${esc(r.ref)}</code> <a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>${r.heading ? ' · ' + esc(r.heading) : ''}`).join('<br>')}</dd>` : ''}
     ${(t.proposals || []).length ? `<dt>Proposed</dt><dd>${t.proposals.map(p => esc(p.title)).join('<br>')}</dd>` : ''}
     ${(t.errors || []).length ? `<dt>Problems</dt><dd>${t.errors.map(esc).join('<br>')}</dd>` : ''}
   </dl></details>`;
